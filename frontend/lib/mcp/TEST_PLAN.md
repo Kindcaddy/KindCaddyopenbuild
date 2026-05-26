@@ -1,4 +1,4 @@
-# KindAI MCP Workflow Test Plan
+# KindCaddy MCP Workflow Test Plan
 
 > **Status — historical reference, not the live test contract.**
 >
@@ -23,7 +23,7 @@
 
 ## Purpose
 
-Validate that the KindAI assistant workflow correctly routes domain-specific user
+Validate that the KindCaddy assistant workflow correctly routes domain-specific user
 requests through Hermes to the right MCP tools, enforces tenant and role policy,
 records tool execution/audit history, and presents accurate results in the chat
 UI.
@@ -31,7 +31,7 @@ UI.
 This plan is written for the current implementation:
 
 - Hermes is the primary agent runtime.
-- KindAI exposes MCP tools through the registry/client layer.
+- KindCaddy exposes MCP tools through the registry/client layer.
 - NetSuite, QuickBooks, Square, and Files are mocked.
 - SQLite uses real tenant-scoped Prisma data.
 - Google Calendar has a real integration surface.
@@ -229,7 +229,7 @@ actions.
 | INT-002 | MCP client invokes registered read tool | Normalized result has `ok: true`, server, tool, latency |
 | INT-003 | MCP client invokes registered write tool | Tool result persisted with status `ok` |
 | INT-004 | Hermes native tool call path | Native `tool_calls` are converted and executed |
-| INT-005 | Hermes JSON fallback path | `kindai_tool_call` JSON is parsed and executed |
+| INT-005 | Hermes JSON fallback path | `kindcaddy_tool_call` JSON is parsed and executed |
 | INT-006 | Calendar client success | Calendar response is normalized and summarized |
 | INT-007 | Mock QuickBooks success | Synced record is visible through `list_synced` for same tenant |
 
@@ -353,7 +353,7 @@ Add Jest tests for:
 Add tests with a fake Hermes fetch adapter:
 
 - Stub Hermes to return `tool_calls` and assert MCP execution.
-- Stub Hermes to return `kindai_tool_call` JSON and assert fallback execution.
+- Stub Hermes to return `kindcaddy_tool_call` JSON and assert fallback execution.
 - Assert `ToolInvocation` and `AuditEvent` rows are created.
 - Assert denied calls persist as status `denied`.
 - Assert chat responses preserve session/message linkage.

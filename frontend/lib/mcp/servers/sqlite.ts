@@ -1,5 +1,5 @@
 /**
- * SQLite MCP Server: exposes read-only access to the live KindAI Prisma
+ * SQLite MCP Server: exposes read-only access to the live KindCaddy Prisma
  * database, scoped to the caller's tenant. Real data, real isolation.
  */
 
@@ -14,7 +14,7 @@ export class SQLiteMCPServer extends BaseMCPServer {
     name: 'sqlite',
     version: '1.0.0',
     description:
-      'Read-only access to the KindAI SQLite database (tenant-scoped).',
+      'Read-only access to the KindCaddy SQLite database (tenant-scoped).',
   };
 
   protected tools: Record<string, Tool> = {

@@ -11,7 +11,7 @@ export default function AdminDashboard() {
             <div className="flex items-center">
               <Sparkles className="h-8 w-8 text-blue-600" />
               <span className="ml-2 text-xl font-bold text-gray-900 dark:text-white">
-                KindAI Admin
+                KindCaddy Admin
               </span>
             </div>
             <div className="flex items-center space-x-4">

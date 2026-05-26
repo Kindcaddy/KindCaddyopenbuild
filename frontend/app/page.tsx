@@ -11,7 +11,7 @@ export default function Home() {
             <div className="flex items-center">
               <Sparkles className="h-8 w-8 text-blue-600" />
               <span className="ml-2 text-xl font-bold text-gray-900 dark:text-white">
-                KindAI
+                KindCaddy
               </span>
             </div>
             <div className="flex items-center space-x-4">
@@ -95,7 +95,7 @@ export default function Home() {
       <footer className="border-t border-gray-200 dark:border-gray-800 mt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center text-gray-600 dark:text-gray-400">
-            <p>&copy; 2026 KindAI. All rights reserved.</p>
+            <p>&copy; 2026 KindCaddy. All rights reserved.</p>
           </div>
         </div>
       </footer>

@@ -23,7 +23,7 @@ export const MCP_DOMAINS: McpDomainDefinition[] = [
   {
     id: 'agent',
     label: 'Agent workspace',
-    description: 'KindAI resources, files, audit context, and calendar scheduling.',
+    description: 'KindCaddy resources, files, audit context, and calendar scheduling.',
     servers: ['sqlite', 'files', 'calendar'],
   },
 ];

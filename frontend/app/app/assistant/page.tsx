@@ -286,7 +286,7 @@ export default function AssistantPage() {
             <Link href="/app" className="flex items-center gap-2">
               <Sparkles className="h-6 w-6 text-blue-600" />
               <span className="font-semibold text-gray-900 dark:text-white">
-                KindAI · Assistant
+                KindCaddy · Assistant
               </span>
             </Link>
             <div className="flex items-center gap-3">

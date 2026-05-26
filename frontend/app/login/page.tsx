@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Sparkles } from "lucide-react";
 
 // Mock credentials
-const MOCK_EMAIL = "demo@kindai.com";
+const MOCK_EMAIL = "demo@kindcaddy.com";
 const MOCK_PASSWORD = "demo123";
 
 export default function LoginPage() {
@@ -55,7 +55,7 @@ export default function LoginPage() {
           <Link href="/" className="inline-flex items-center">
             <Sparkles className="h-10 w-10 text-blue-600" />
             <span className="ml-2 text-2xl font-bold text-gray-900 dark:text-white">
-              KindAI
+              KindCaddy
             </span>
           </Link>
         </div>

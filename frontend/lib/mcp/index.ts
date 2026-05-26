@@ -15,7 +15,7 @@ import { SquareMCPServer } from './servers/square';
 import { SQLiteMCPServer } from './servers/sqlite';
 
 const globalForMcp = globalThis as unknown as {
-  __kindai_mcp__?: {
+  __kindcaddy_mcp__?: {
     registry: ToolRegistry;
     client: MCPClient;
     serverClients: Record<string, MCPServerClient>;
@@ -39,9 +39,9 @@ function build(): {
   return { registry, client, serverClients };
 }
 
-export const mcp = globalForMcp.__kindai_mcp__ ?? build();
+export const mcp = globalForMcp.__kindcaddy_mcp__ ?? build();
 if (process.env.NODE_ENV !== 'production') {
-  globalForMcp.__kindai_mcp__ = mcp;
+  globalForMcp.__kindcaddy_mcp__ = mcp;
 }
 
 export { MCPClient } from './client';

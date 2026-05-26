@@ -41,7 +41,7 @@ async function main() {
     data: { email: 'charlie@example.com', name: 'Charlie Brown' },
   });
   const demo = await db.user.create({
-    data: { email: 'demo@kindai.com', name: 'Demo User' },
+    data: { email: 'demo@kindcaddy.com', name: 'Demo User' },
   });
 
   console.log('✅ Created users');

@@ -31,7 +31,7 @@ export class FilesMCPServer extends BaseMCPServer {
     const seed = new Map<string, StoredFile>();
     seed.set('welcome.md', {
       content:
-        '# Welcome to KindAI\n\nThis is a sample tenant document exposed through the Files MCP server.',
+        '# Welcome to KindCaddy\n\nThis is a sample tenant document exposed through the Files MCP server.',
       updatedAt: new Date().toISOString(),
     });
     seed.set('roadmap.md', {

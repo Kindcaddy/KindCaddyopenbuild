@@ -1,9 +1,9 @@
 /**
- * ExternalHermesAgent: the primary Agents-layer runtime for KindAI.
+ * ExternalHermesAgent: the primary Agents-layer runtime for KindCaddy.
  *
- * User turns are sent to the downloaded Nous Hermes Gateway. KindAI exposes
+ * User turns are sent to the downloaded Nous Hermes Gateway. KindCaddy exposes
  * its MCP tools to Hermes using OpenAI-style function specs; when Hermes asks
- * for a tool, KindAI executes it locally through the MCP client so policy,
+ * for a tool, KindCaddy executes it locally through the MCP client so policy,
  * tenancy, persistence, and audit stay in this app.
  */
 
@@ -52,11 +52,11 @@ export class ExternalHermesAgent {
       const toolCalls =
         response.toolCalls.length > 0
           ? response.toolCalls
-          : parseKindAIToolCalls(response.content, availableTools);
+          : parseKindCaddyToolCalls(response.content, availableTools);
       const requestedToolCalls =
         toolCalls.length > 0
           ? toolCalls
-          : inferExplicitKindAIToolCalls(turns, availableTools);
+          : inferExplicitKindCaddyToolCalls(turns, availableTools);
       input.trace.push({
         type: 'llm',
         at: new Date().toISOString(),
@@ -134,7 +134,7 @@ export class ExternalHermesAgent {
           ...(turns.at(-1)?.role === 'tool'
             ? [{
                 role: 'user',
-                content: 'Use the preceding KindAI tool result to answer the original user request.',
+                content: 'Use the preceding KindCaddy tool result to answer the original user request.',
               }]
             : []),
         ],
@@ -158,15 +158,15 @@ export class ExternalHermesAgent {
 
   private systemPrompt(input: AgentStepInput, tools: RegisteredTool[]): string {
     return [
-      'You are Nous Hermes Agent, the primary workflow agent inside KindAI.',
-      'Choose and call the provided KindAI MCP tools when they are useful.',
-      'If you need a KindAI tool and native tool calling is unavailable, reply with only JSON in this shape:',
-      '{"kindai_tool_call":{"name":"server.tool_name","arguments":{}}}',
-      'For multiple tools, use {"kindai_tool_calls":[{"name":"server.tool_name","arguments":{}}]}.',
+      'You are Nous Hermes Agent, the primary workflow agent inside KindCaddy.',
+      'Choose and call the provided KindCaddy MCP tools when they are useful.',
+      'If you need a KindCaddy tool and native tool calling is unavailable, reply with only JSON in this shape:',
+      '{"kindcaddy_tool_call":{"name":"server.tool_name","arguments":{}}}',
+      'For multiple tools, use {"kindcaddy_tool_calls":[{"name":"server.tool_name","arguments":{}}]}.',
       'After a tool result is provided, answer the user normally.',
       'Only perform writes when the user intent is clear. Report side effects clearly.',
-      `KindAI tenant: ${input.context.tenantId}. User: ${input.context.userId}. Role: ${input.context.role}.`,
-      `Available KindAI MCP tools: ${formatToolCatalog(tools)}`,
+      `KindCaddy tenant: ${input.context.tenantId}. User: ${input.context.userId}. Role: ${input.context.role}.`,
+      `Available KindCaddy MCP tools: ${formatToolCatalog(tools)}`,
     ].join(' ');
   }
 
@@ -294,15 +294,15 @@ function formatToolCatalog(tools: RegisteredTool[]): string {
     .join('\n');
 }
 
-function parseKindAIToolCalls(content: string, tools: RegisteredTool[]): LLMToolCall[] {
+function parseKindCaddyToolCalls(content: string, tools: RegisteredTool[]): LLMToolCall[] {
   const toolNames = new Set(tools.map((tool) => tool.name));
   const parsed = parseJsonLike(content);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
   const obj = parsed as Record<string, unknown>;
-  const calls = Array.isArray(obj.kindai_tool_calls)
-    ? obj.kindai_tool_calls
-    : obj.kindai_tool_call
-      ? [obj.kindai_tool_call]
+  const calls = Array.isArray(obj.kindcaddy_tool_calls)
+    ? obj.kindcaddy_tool_calls
+    : obj.kindcaddy_tool_call
+      ? [obj.kindcaddy_tool_call]
       : obj.tool
         ? [obj]
         : [];
@@ -322,7 +322,7 @@ function parseKindAIToolCalls(content: string, tools: RegisteredTool[]): LLMTool
         ? (item.arguments as Record<string, unknown>)
         : {};
       return {
-        id: `kindai_tool_${Date.now()}_${idx}`,
+        id: `kindcaddy_tool_${Date.now()}_${idx}`,
         name,
         arguments: args,
       };
@@ -330,7 +330,7 @@ function parseKindAIToolCalls(content: string, tools: RegisteredTool[]): LLMTool
     .filter(isToolCall);
 }
 
-function inferExplicitKindAIToolCalls(
+function inferExplicitKindCaddyToolCalls(
   turns: ChatTurn[],
   tools: RegisteredTool[],
 ): LLMToolCall[] {
@@ -377,7 +377,7 @@ function makeInferredToolCall(
   args: Record<string, unknown>,
 ): LLMToolCall {
   return {
-    id: `kindai_inferred_${Date.now()}`,
+    id: `kindcaddy_inferred_${Date.now()}`,
     name,
     arguments: args,
   };

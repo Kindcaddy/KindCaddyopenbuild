@@ -6,7 +6,7 @@
  *   1. User prompt arrives with a RequestContext.
  *   2. Host ensures a ChatSession, persists the user message.
  *   3. Host routes requests to Hermes.
- *   4. Hermes decides whether to call KindAI MCP tools.
+ *   4. Hermes decides whether to call KindCaddy MCP tools.
  *   5. Host persists the assistant message + trace + updates memory.
  */
 

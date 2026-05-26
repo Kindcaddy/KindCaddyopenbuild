@@ -1,7 +1,7 @@
 # Kindcaddy Web App — System Diagram & Workflow
 
 This document describes the architecture and runtime workflow of the Kindcaddy web app
-(internally referred to as **KindAI**). It is split into:
+(**KindCaddy**). It is split into:
 
 1. High-level system diagram
 2. Component layers and responsibilities

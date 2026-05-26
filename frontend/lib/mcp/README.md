@@ -1,4 +1,4 @@
-# KindAI MCP Framework
+# KindCaddy MCP Framework
 
 Working implementation of the architecture diagram for the current Hermes-first
 runtime. The web app delegates user turns to downloaded Hermes Agent, and Hermes
@@ -37,13 +37,13 @@ uses your local Gemma endpoint as its LLM backend.
         │ reasoning      │ tool execution
         ▼                ▼
 ┌───────────────────┐   ┌──────────────────────────────┐
-│ Hermes Gateway    │   │ KindAI MCP Clients           │
+│ Hermes Gateway    │   │ KindCaddy MCP Clients           │
 │ 127.0.0.1:8642/v1 │   │ lib/mcp/client.ts            │
 └────────┬──────────┘   └──────────────┬───────────────┘
          │                             │
          ▼                             ▼
 ┌───────────────────┐   ┌──────────────────────────────┐
-│ Local Gemma LLM   │   │ KindAI MCP Servers           │
+│ Local Gemma LLM   │   │ KindCaddy MCP Servers           │
 │ 127.0.0.1:8080/v1 │   │ sqlite • files • calendar    │
 └───────────────────┘   │ netsuite • quickbooks • square│
                         └──────────────────────────────┘
@@ -54,13 +54,13 @@ Response returns through: ExternalHermesAgent -> Host -> API -> User
 Current request path for chat replies:
 
 1. User sends a prompt in `/app/assistant`.
-2. KindAI Host persists session/message state (Prisma).
+2. KindCaddy Host persists session/message state (Prisma).
 3. Host runs `ExternalHermesAgent` from the Agents layer.
-4. `ExternalHermesAgent` calls Hermes gateway (`:8642/v1`) with KindAI MCP
+4. `ExternalHermesAgent` calls Hermes gateway (`:8642/v1`) with KindCaddy MCP
    tool definitions.
 5. Hermes gateway uses local Gemma (`:8080/v1`) to decide whether to answer or
    request a tool call.
-6. If Hermes requests a tool, KindAI executes it through the MCP client layer
+6. If Hermes requests a tool, KindCaddy executes it through the MCP client layer
    with the current tenant/user context.
 7. Host stores the assistant reply + trace and returns it to the UI.
 
@@ -79,7 +79,7 @@ Host / Application  ── lib/host/host.ts, lib/host/session.ts
 Agents Layer        ── lib/agents/
   • ExternalHermesAgent is the primary runtime
   • calls downloaded Hermes Gateway directly
-  • exposes KindAI MCP tools to Hermes as OpenAI-style tool specs
+  • exposes KindCaddy MCP tools to Hermes as OpenAI-style tool specs
   • supports a JSON fallback protocol for local models/gateways that do not
     emit native OpenAI tool calls
  │
@@ -119,13 +119,13 @@ await mcp.client.invoke('quickbooks.list_synced', {}, context, opts);
 
 `ExternalHermesAgent` normally advertises these tools to Hermes using OpenAI
 function specs. If a local Hermes/Gemma stack does not emit native tool calls,
-the system prompt also allows Hermes to request a KindAI MCP tool using:
+the system prompt also allows Hermes to request a KindCaddy MCP tool using:
 
 ```json
-{"kindai_tool_call":{"name":"quickbooks.list_synced","arguments":{}}}
+{"kindcaddy_tool_call":{"name":"quickbooks.list_synced","arguments":{}}}
 ```
 
-KindAI validates the requested tool name against the registry, executes it
+KindCaddy validates the requested tool name against the registry, executes it
 through the MCP client layer, persists the `ToolInvocation`, and then asks
 Hermes to summarize the result.
 
@@ -189,7 +189,7 @@ HERMES_MODEL=/Users/jimmy/Desktop/SecondBrain/gemma-4-26B-A4B-it
 
 Then open `/app/assistant` and chat normally. The web app sends turns to
 `ExternalHermesAgent`, which calls the downloaded Hermes Gateway and lets Hermes
-choose from the KindAI MCP tools.
+choose from the KindCaddy MCP tools.
 
 ## Swapping in real providers
 

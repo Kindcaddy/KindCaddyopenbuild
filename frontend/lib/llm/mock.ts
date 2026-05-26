@@ -15,7 +15,7 @@ function makeCallId(): string {
 }
 
 export class MockLLMProvider implements LLMProvider {
-  name = 'mock-kindai-v1';
+  name = 'mock-kindcaddy-v1';
 
   async chat(input: {
     system: string;

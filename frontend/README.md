@@ -13,7 +13,7 @@ npm run db:reset    # creates SQLite + seeds demo users/tenants/departments
 npm run dev         # http://localhost:3000
 ```
 
-Demo login: `demo@kindai.com` / `demo123` (dev-only, gated by `NODE_ENV`).
+Demo login: `demo@kindcaddy.com` / `demo123` (dev-only, gated by `NODE_ENV`).
 
 ## Scripts
 

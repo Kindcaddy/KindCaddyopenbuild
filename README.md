@@ -34,7 +34,7 @@ Sign in at `/login` with:
 
 | Role        | Email                  | Password  |
 |-------------|------------------------|-----------|
-| Demo user   | `demo@kindai.com`      | `demo123` |
+| Demo user   | `demo@kindcaddy.com`   | `demo123` |
 
 The demo login is gated behind `NODE_ENV !== 'production'` in `app/api/dev/login/route.ts`. It does not ship to prod builds.
 

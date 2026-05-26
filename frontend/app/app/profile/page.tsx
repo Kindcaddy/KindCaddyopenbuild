@@ -81,7 +81,7 @@ export default function ProfilePage() {
               <div className="flex items-center">
                 <Sparkles className="h-8 w-8 text-blue-600" />
                 <span className="ml-2 text-xl font-bold text-gray-900 dark:text-white">
-                  KindAI
+                  KindCaddy
                 </span>
               </div>
               <div className="flex items-center gap-4">
@@ -117,7 +117,7 @@ export default function ProfilePage() {
               <div className="flex items-center">
                 <Sparkles className="h-8 w-8 text-blue-600" />
                 <span className="ml-2 text-xl font-bold text-gray-900 dark:text-white">
-                  KindAI
+                  KindCaddy
                 </span>
               </div>
               <div className="flex items-center gap-4">
@@ -162,7 +162,7 @@ export default function ProfilePage() {
             <div className="flex items-center">
               <Sparkles className="h-8 w-8 text-blue-600" />
               <span className="ml-2 text-xl font-bold text-gray-900 dark:text-white">
-                KindAI
+                KindCaddy
               </span>
             </div>
             <div className="flex items-center gap-4">

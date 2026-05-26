@@ -25,7 +25,7 @@
 
 import { test, expect } from '@playwright/test';
 
-const DEMO_EMAIL = 'demo@kindai.com';
+const DEMO_EMAIL = 'demo@kindcaddy.com';
 const DEMO_PASSWORD = 'demo123';
 
 test.describe('@smoke login flow', () => {
