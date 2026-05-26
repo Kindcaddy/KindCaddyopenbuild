@@ -1,0 +1,48 @@
+# Lint + validate the Terraform under infra/.
+#
+# This does NOT run terraform plan against any AWS account — that requires
+# credentials and a state backend, both out of scope of unit-level CI. It
+# only verifies the configs parse and pass internal type checks, which
+# catches the vast majority of regressions (typos, missing variables,
+# provider version mismatches) before a reviewer touches them.
+
+name: Terraform
+
+on:
+  push:
+    branches: [main]
+    paths: ['infra/**', '.github/workflows/terraform.yml']
+  pull_request:
+    branches: [main]
+    paths: ['infra/**', '.github/workflows/terraform.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: ${{ matrix.variant }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [public-internet, private-vpc]
+    defaults:
+      run:
+        working-directory: infra/${{ matrix.variant }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.9.5'
+
+      - name: Format check
+        run: terraform fmt -recursive -check -diff ..
+        working-directory: .
+
+      - name: Init (no backend)
+        run: terraform init -backend=false
+
+      - name: Validate
+        run: terraform validate

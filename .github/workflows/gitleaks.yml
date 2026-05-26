@@ -1,0 +1,39 @@
+# Secret scanning with gitleaks.
+#
+# Runs against every PR and on push to main. The action scans the full diff
+# range on PRs (so an accidental key in any commit on the branch is caught,
+# not just the latest one) and the full repo on schedule (so a rule update
+# that finds an older secret surfaces too).
+#
+# `continue-on-error: false` — a leaked secret blocks the merge. Rotating a
+# leaked key is cheaper than reverting a release that already shipped one.
+
+name: Secret scan (gitleaks)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * *' # daily 06:17 UTC
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  scan:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history; gitleaks needs commits prior to HEAD
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # If a .gitleaks.toml is added in the future to allowlist known-safe
+          # patterns (e.g. test fixtures), gitleaks picks it up automatically.

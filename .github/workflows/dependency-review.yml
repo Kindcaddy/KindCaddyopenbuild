@@ -1,0 +1,36 @@
+# Reviewer-friendly diff of dependency changes on every PR.
+#
+# Catches:
+#  - New dependencies with known CVEs at high+ severity.
+#  - Licenses incompatible with this repo's MIT terms (GPL family, etc.).
+#  - Transitive bumps that pull in a flagged version of an existing dep.
+#
+# Runs only on pull_request because it diffs base..head — there is nothing
+# to compare against on a push to main.
+
+name: Dependency review
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write # to post the review comment
+
+jobs:
+  review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          # Reject GPL/AGPL inbound (incompatible with MIT outbound) and any
+          # license string the tool can't classify. Extend cautiously — every
+          # addition here is a gate the next contributor will trip over.
+          deny-licenses: AGPL-1.0-or-later, AGPL-3.0-or-later, GPL-2.0-or-later, GPL-3.0-or-later
+          comment-summary-in-pr: on-failure

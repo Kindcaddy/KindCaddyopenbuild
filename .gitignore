@@ -1,0 +1,82 @@
+# ---------------------------------------------------------------------------
+# Kindcaddy — root .gitignore
+# Applies to the whole repo. Per-subdirectory .gitignores extend, not override.
+# ---------------------------------------------------------------------------
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+.cursor/
+.claude/
+
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+*.pem
+*.key
+*.p12
+# Note: .env.test IS committed — it contains only DATABASE_URL=file:./test.db
+# which Jest's setup loads via dotenv. No secrets live there. See frontend/jest.setup.js.
+
+# Node / Next.js
+node_modules/
+.next/
+.swc/
+out/
+build/
+dist/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Next.js generated types (regenerated per machine)
+next-env.d.ts
+
+# Local databases — the demo recreates these via `npm run db:reset`
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Python (in case anyone runs Hermes locally inside this tree)
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build/deploy artifacts
+.aws-sam/
+.terraform/
+*.tfstate
+*.tfstate.backup
+.serverless/
+
+# Test artifacts
+test-results/
+playwright-report/
+playwright/.cache/
+.k6-results/
+
+# Logs
+logs/
+*.log
+
+# Terraform variable files
+*.tfvars
+!example.tfvars
+crash.log

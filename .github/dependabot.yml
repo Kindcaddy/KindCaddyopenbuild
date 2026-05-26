@@ -1,0 +1,54 @@
+# Automated dependency PRs.
+#
+# Three update streams:
+#   1. npm packages under frontend/        — the app itself
+#   2. GitHub Actions versions             — the CI workflows
+#   3. Terraform providers under infra/    — the IaC
+#
+# Weekly cadence on Monday morning is a deliberate tradeoff: daily generates
+# too many PRs to review attentively; monthly lets known-vulnerable versions
+# linger. Security advisories override the schedule via `security-updates`.
+
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: '/frontend'
+    schedule:
+      interval: weekly
+      day: monday
+      time: '08:00'
+      timezone: 'America/Los_Angeles'
+    open-pull-requests-limit: 5
+    groups:
+      prod-deps:
+        dependency-type: production
+        update-types: [minor, patch]
+      dev-deps:
+        dependency-type: development
+        update-types: [minor, patch]
+    ignore:
+      # Pin Next.js major; bumps require manual smoke testing of the
+      # App Router, middleware, and route handler shapes.
+      - dependency-name: 'next'
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: terraform
+    directory: '/infra/public-internet'
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: terraform
+    directory: '/infra/private-vpc'
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2

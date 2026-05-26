@@ -1,0 +1,191 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships    Membership[]
+  mcpDomainAccess UserMcpDomainAccess[]
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  departments     Department[]
+  memberships     Membership[]
+  resources       Resource[]
+  mcpDomains      TenantMcpDomain[]
+  mcpDomainAccess UserMcpDomainAccess[]
+}
+
+model TenantMcpDomain {
+  id        String   @id @default(cuid())
+  tenantId  String
+  domain    String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, domain])
+  @@index([tenantId])
+}
+
+// Per-user (employee) override of which MCP domains they can use within a tenant.
+// Absence of a row means "allowed by default". Used by admins to restrict
+// individual employees' access to specific MCP domains.
+model UserMcpDomainAccess {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String
+  domain    String
+  allowed   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId, domain])
+  @@index([userId])
+  @@index([tenantId])
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberships Membership[]
+  resources   Resource[]
+}
+
+model Membership {
+  id           String   @id @default(cuid())
+  userId       String
+  tenantId     String
+  departmentId String
+  role         String   // 'admin' | 'employee'
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId, departmentId])
+  @@index([userId])
+  @@index([tenantId])
+}
+
+model Resource {
+  id           String   @id @default(cuid())
+  tenantId     String
+  departmentId String
+  name         String
+  data         String   @default("{}") // JSON string
+  createdBy    String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([departmentId])
+}
+
+model AuditEvent {
+  id          String   @id @default(cuid())
+  userId      String?
+  tenantId    String?
+  action      String
+  resourceType String?
+  resourceId  String?
+  metadata    String   @default("{}") // JSON string
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([tenantId])
+  @@index([createdAt])
+}
+
+// ---------- MCP Framework: session / memory / tool-call state ----------
+
+model ChatSession {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String
+  title     String   @default("New conversation")
+  // JSON: free-form working memory maintained by the Host (facts, goals, scratchpad)
+  memory    String   @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages ChatMessage[]
+
+  @@index([userId])
+  @@index([tenantId])
+  @@index([updatedAt])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  sessionId String
+  // 'user' | 'assistant' | 'system' | 'tool'
+  role      String
+  // For assistant messages: which agent produced it (e.g. 'openclaw', 'hermes', 'host')
+  agent     String?
+  content   String
+  // JSON: optional structured payload (plan steps, tool call metadata, citations)
+  metadata  String   @default("{}")
+  createdAt DateTime @default(now())
+
+  session     ChatSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  invocations ToolInvocation[]
+
+  @@index([sessionId])
+  @@index([createdAt])
+}
+
+model ToolInvocation {
+  id         String   @id @default(cuid())
+  messageId  String
+  sessionId  String
+  // e.g. 'sqlite', 'files', 'netsuite', 'quickbooks'
+  server     String
+  // e.g. 'sqlite.query', 'files.read'
+  tool       String
+  // JSON request params
+  params     String   @default("{}")
+  // JSON normalized result (or error)
+  result     String   @default("{}")
+  status     String   @default("pending") // 'pending' | 'ok' | 'error' | 'denied'
+  latencyMs  Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([server])
+  @@index([createdAt])
+}
