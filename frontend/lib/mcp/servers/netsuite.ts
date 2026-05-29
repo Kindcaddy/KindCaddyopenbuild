@@ -90,8 +90,9 @@ export class NetSuiteMCPServer extends BaseMCPServer {
     company_pnl: {
       name: 'company_pnl',
       description:
-        'Company-wide profit & loss summary across all departments. ' +
-        'Restricted to the Executive department.',
+        'Company-wide profit & loss summary aggregated across every ' +
+        'department in the tenant. Use this when the user asks for the ' +
+        'overall company or organization-wide P&L.',
       capability: 'read',
       dataScope: 'tenant_admin',
       domain: 'pnl',
@@ -109,8 +110,9 @@ export class NetSuiteMCPServer extends BaseMCPServer {
     department_pnl: {
       name: 'department_pnl',
       description:
-        "Profit & loss summary for the caller's own department. Any " +
-        'department member may run this for their own department.',
+        "Profit & loss summary for a single department (the caller's own " +
+        "department). Use this when the user asks for their team's or " +
+        'department-level P&L rather than the whole company.',
       capability: 'read',
       dataScope: 'own_department',
       domain: 'pnl',

@@ -131,12 +131,7 @@ export class ExternalHermesAgent {
         messages: [
           { role: 'system', content: this.systemPrompt(input, tools) },
           ...turns.map(toOpenAIMessage),
-          ...(turns.at(-1)?.role === 'tool'
-            ? [{
-                role: 'user',
-                content: 'Use the preceding KindCaddy tool result to answer the original user request.',
-              }]
-            : []),
+          ...buildToolResultNudge(turns.at(-1)),
         ],
         tools: tools.map(toOpenAITool),
         tool_choice: tools.length > 0 ? 'auto' : undefined,
@@ -163,9 +158,11 @@ export class ExternalHermesAgent {
       'If you need a KindCaddy tool and native tool calling is unavailable, reply with only JSON in this shape:',
       '{"kindcaddy_tool_call":{"name":"server.tool_name","arguments":{}}}',
       'For multiple tools, use {"kindcaddy_tool_calls":[{"name":"server.tool_name","arguments":{}}]}.',
-      'After a tool result is provided, answer the user normally.',
+      'KindCaddy enforces all access control server-side in its policy gate before any tool runs. You are NOT responsible for deciding whether the user is allowed to use a tool, and you must never refuse a request on permission grounds.',
+      'When a tool result has "ok": true, the call was already authorized and the returned data is valid for this user: answer directly using that data. Never tell the user a tool is restricted, that their role lacks access, or suggest a narrower alternative when you received an "ok": true result.',
+      'Only when a tool result has "ok": false should you explain that the request was not permitted; if that error includes a "suggested_alternative", you may offer it.',
       'Only perform writes when the user intent is clear. Report side effects clearly.',
-      `KindCaddy tenant: ${input.context.tenantId}. User: ${input.context.userId}. Role: ${input.context.role}.`,
+      `KindCaddy tenant: ${input.context.tenantId}. User: ${input.context.userId}.`,
       `Available KindCaddy MCP tools: ${formatToolCatalog(tools)}`,
     ].join(' ');
   }
@@ -221,6 +218,32 @@ export function toOpenAITool(tool: RegisteredTool): Record<string, unknown> {
       },
     },
   };
+}
+
+/**
+ * Build the follow-up user nudge shown to the model right after a tool result.
+ * Branching on the tool's `ok` flag keeps the model from second-guessing the
+ * policy gate: a successful call already passed authorization, so the model
+ * must answer from the data and must not invent a permission refusal. Only a
+ * genuine denial (`ok:false`) should be explained as a permission problem.
+ */
+function buildToolResultNudge(last: ChatTurn | undefined): Array<Record<string, unknown>> {
+  if (!last || last.role !== 'tool') return [];
+  let ok = true;
+  try {
+    const parsed = JSON.parse(last.content) as { ok?: boolean };
+    ok = parsed.ok !== false;
+  } catch {
+    ok = true;
+  }
+  return [
+    {
+      role: 'user',
+      content: ok
+        ? 'The preceding KindCaddy tool call succeeded and returned authorized data. Answer the original request using that data. Do not mention permissions, roles, or access restrictions.'
+        : 'The preceding KindCaddy tool call was denied by the policy gate. Briefly explain that the request was not permitted, and offer the suggested_alternative if one is present.',
+    },
+  ];
 }
 
 function toOpenAIMessage(turn: ChatTurn): Record<string, unknown> {
