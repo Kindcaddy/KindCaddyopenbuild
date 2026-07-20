@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Sparkles, Bell, Search, TrendingUp, Users, DollarSign, Activity, Settings, BarChart3, Shield } from "lucide-react";
+import { Sparkles, Bell, Search, TrendingUp, Users, DollarSign, Activity, Settings, BarChart3, Shield, AlertTriangle } from "lucide-react";
 
 export default function AdminDashboard() {
   return (
@@ -62,6 +62,13 @@ export default function AdminDashboard() {
             >
               <Shield className="h-5 w-5 mr-3" />
               Security
+            </Link>
+            <Link
+              href="/admin/errors"
+              className="flex items-center px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg"
+            >
+              <AlertTriangle className="h-5 w-5 mr-3" />
+              Error Reports
             </Link>
             <Link
               href="/admin/settings"

@@ -1,0 +1,10 @@
+# Never ship secrets or local state into an image build context.
+.env
+.env.*
+!.env.example
+*.db
+*.db.bak
+node_modules
+.next
+coverage
+npm-debug.log*

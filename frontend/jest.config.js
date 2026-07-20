@@ -8,6 +8,9 @@ const createJestConfig = nextJest({
 // Add any custom config to be passed to Jest
 const customJestConfig = {
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
+  // All suites share one Postgres test database; parallel workers race each
+  // other's seed/cleanup (deleteMany in one suite wipes another's fixtures).
+  maxWorkers: 1,
   // Use node environment for API route tests
   testEnvironment: 'node',
   testEnvironmentOptions: {

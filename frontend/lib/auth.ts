@@ -10,7 +10,10 @@ export function setAuthCookie(userId: string, tenantId?: string) {
   cookieStore.set(COOKIE_NAME, cookieValue, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    // Strict in production (CSRF hardening). Dev stays lax so OAuth redirect
+    // flows on localhost keep working. The post-sign-in hop to /app is a
+    // client-side navigation (see /api/auth/bridge) so strict is safe.
+    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
     maxAge: COOKIE_MAX_AGE,
     path: '/',
   });

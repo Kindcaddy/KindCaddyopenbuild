@@ -9,6 +9,7 @@
 
 import { db } from '../db';
 import type { RequestContext } from '../context';
+import { newRequestId, reportError } from '../errors';
 import type { RegisteredTool, ToolRegistry } from './registry';
 import { evaluatePolicy } from './policy';
 import { normalize, type NormalizedResult } from './normalize';
@@ -29,6 +30,8 @@ export interface InvokeOptions {
   /** Attach the call to a chat message so we can render it in the UI. */
   messageId?: string;
   sessionId?: string;
+  /** Correlation id from withGuard; attached to ErrorReports on tool errors. */
+  requestId?: string;
 }
 
 export interface InvokeResult extends NormalizedResult {
@@ -160,6 +163,25 @@ class MCPInvokeRuntime {
       normalized.summary,
       opts,
     );
+    if (!normalized.ok) {
+      // A tool *error* is a bug (server threw / returned an RPC error), unlike
+      // a policy denial which is the gate working as intended. Persist it for
+      // triage; the agent still receives the same ok:false envelope.
+      await reportError(new Error(normalized.summary), {
+        requestId: opts.requestId ?? newRequestId(),
+        route: 'mcp.invoke',
+        code: 'mcp_tool_error',
+        userId: context.userId,
+        tenantId: context.tenantId,
+        context: {
+          server: tool.server,
+          tool: tool.localName,
+          sessionId: opts.sessionId,
+          messageId: opts.messageId,
+          invocationId: result.invocationId,
+        },
+      });
+    }
     return result;
   }
 
@@ -167,6 +189,7 @@ class MCPInvokeRuntime {
     toolName: string,
     params: JsonValue,
     opts: InvokeOptions,
+    context?: RequestContext,
   ): Promise<InvokeResult> {
     return this.failed(
       'unknown',
@@ -176,6 +199,7 @@ class MCPInvokeRuntime {
       params,
       opts,
       0,
+      context,
     );
   }
 
@@ -187,6 +211,7 @@ class MCPInvokeRuntime {
     params: JsonValue,
     opts: InvokeOptions,
     latencyMs: number,
+    context?: RequestContext,
   ): Promise<InvokeResult> {
     const res: InvokeResult = {
       ok: false,
@@ -198,6 +223,21 @@ class MCPInvokeRuntime {
       latencyMs,
     };
     res.invocationId = await this.persist(server, tool, params, res, 'error', opts);
+    await reportError(new Error(message), {
+      requestId: opts.requestId ?? newRequestId(),
+      route: 'mcp.invoke',
+      code: 'mcp_tool_error',
+      userId: context?.userId ?? null,
+      tenantId: context?.tenantId ?? null,
+      context: {
+        server,
+        tool,
+        rpcErrorCode: code,
+        sessionId: opts.sessionId,
+        messageId: opts.messageId,
+        invocationId: res.invocationId,
+      },
+    });
     return res;
   }
 
@@ -274,6 +314,7 @@ export class MCPServerClient {
         `${this.serverId}.${localToolName}`,
         params,
         opts,
+        context,
       );
     }
     return this.runtime.invokeResolved(tool, params, context, opts);
@@ -312,7 +353,7 @@ export class MCPClient {
   ): Promise<InvokeResult> {
     const tool = this.registry.findTool(toolName);
     if (!tool) {
-      return this.runtime.failedUnknownTool(toolName, params, opts);
+      return this.runtime.failedUnknownTool(toolName, params, opts, context);
     }
     return this.runtime.invokeResolved(tool, params, context, opts);
   }

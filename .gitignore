@@ -80,3 +80,4 @@ logs/
 *.tfvars
 !example.tfvars
 crash.log
+hermes-agent/

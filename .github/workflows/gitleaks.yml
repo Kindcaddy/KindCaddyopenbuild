@@ -1,12 +1,14 @@
 # Secret scanning with gitleaks.
 #
-# Runs against every PR and on push to main. The action scans the full diff
-# range on PRs (so an accidental key in any commit on the branch is caught,
-# not just the latest one) and the full repo on schedule (so a rule update
-# that finds an older secret surfaces too).
+# Runs against every PR and on push to main. We invoke the gitleaks CLI
+# directly (not the gitleaks-action wrapper) because the wrapper builds a
+# `<before>^..<after>` range from the push event payload — and on the very
+# first push to a new repo, `before` is the null SHA, which produces an
+# invalid revision range and a confusing "ambiguous argument" failure.
 #
-# `continue-on-error: false` — a leaked secret blocks the merge. Rotating a
-# leaked key is cheaper than reverting a release that already shipped one.
+# Scanning full history every time is safe: this repo is small, gitleaks is
+# fast, and a full scan catches secrets in older commits that a diff-only
+# scan would miss.
 
 name: Secret scan (gitleaks)
 
@@ -29,11 +31,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # full history; gitleaks needs commits prior to HEAD
+          fetch-depth: 0 # full history; gitleaks needs all commits to scan
+
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION=8.24.3
+          curl -sSL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
 
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # If a .gitleaks.toml is added in the future to allowlist known-safe
-          # patterns (e.g. test fixtures), gitleaks picks it up automatically.
+        run: gitleaks detect --redact --verbose --no-banner --exit-code=2

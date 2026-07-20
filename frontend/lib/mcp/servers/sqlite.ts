@@ -1,6 +1,8 @@
 /**
- * SQLite MCP Server: exposes read-only access to the live KindCaddy Prisma
- * database, scoped to the caller's tenant. Real data, real isolation.
+ * Database MCP Server: exposes read-only access to the live KindCaddy Prisma
+ * database (Postgres), scoped to the caller's tenant. Real data, real
+ * isolation. The server id stays 'sqlite' for tool-catalog compatibility —
+ * renaming it would break registered tool names and tenant domain configs.
  */
 
 import { db } from '../../db';
@@ -14,7 +16,7 @@ export class SQLiteMCPServer extends BaseMCPServer {
     name: 'sqlite',
     version: '1.0.0',
     description:
-      'Read-only access to the KindCaddy SQLite database (tenant-scoped).',
+      'Read-only access to the KindCaddy database (tenant-scoped).',
   };
 
   protected tools: Record<string, Tool> = {

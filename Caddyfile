@@ -1,0 +1,9 @@
+app.kindcaddy.com {
+	encode zstd gzip
+	reverse_proxy app:3000 {
+		flush_interval -1
+		transport http {
+			response_header_timeout 210s
+		}
+	}
+}

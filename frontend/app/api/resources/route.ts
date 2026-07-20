@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withGuard } from '@/lib/guard';
+import { AppError } from '@/lib/errors';
 import { db } from '@/lib/db';
 import { Permission } from '@/lib/rbac';
 
@@ -33,47 +34,43 @@ export const GET = withGuard(
 // POST /api/resources - Create resource scoped to tenant + department
 export const POST = withGuard(
   async (req: NextRequest, context) => {
-    try {
-      const body = await req.json();
-      const { name, data } = body;
+    // Unexpected failures (e.g. DB errors) propagate to withGuard's
+    // catch-all, which persists an ErrorReport and returns an opaque 500.
+    const body = await req.json().catch(() => {
+      throw new AppError('invalid_request', 'Request body must be valid JSON', 400);
+    });
+    const { name, data } = body;
 
-      if (!name || typeof name !== 'string') {
-        return NextResponse.json(
-          { error: 'Name is required and must be a string' },
-          { status: 400 }
-        );
-      }
-
-      const resource = await db.resource.create({
-        data: {
-          name,
-          data: JSON.stringify(data || {}),
-          tenantId: context.tenant.id,
-          departmentId: context.department.id,
-          createdBy: context.user.id,
-        },
-      });
-
+    if (!name || typeof name !== 'string') {
       return NextResponse.json(
-        {
-          id: resource.id,
-          name: resource.name,
-          data: JSON.parse(resource.data),
-          createdBy: resource.createdBy,
-          tenantId: resource.tenantId,
-          departmentId: resource.departmentId,
-          createdAt: resource.createdAt,
-          updatedAt: resource.updatedAt,
-        },
-        { status: 201 }
-      );
-    } catch (error) {
-      console.error('Create resource error:', error);
-      return NextResponse.json(
-        { error: 'Failed to create resource' },
-        { status: 500 }
+        { error: 'Name is required and must be a string' },
+        { status: 400 }
       );
     }
+
+    const resource = await db.resource.create({
+      data: {
+        name,
+        data: JSON.stringify(data || {}),
+        tenantId: context.tenant.id,
+        departmentId: context.department.id,
+        createdBy: context.user.id,
+      },
+    });
+
+    return NextResponse.json(
+      {
+        id: resource.id,
+        name: resource.name,
+        data: JSON.parse(resource.data),
+        createdBy: resource.createdBy,
+        tenantId: resource.tenantId,
+        departmentId: resource.departmentId,
+        createdAt: resource.createdAt,
+        updatedAt: resource.updatedAt,
+      },
+      { status: 201 }
+    );
   },
   { permission: 'resources:write' as Permission }
 );

@@ -1,14 +1,11 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { notFoundInProduction } from '@/lib/dev-only';
 
 // Dev-only endpoint - returns list of users with their tenants for dev login page
 export async function GET() {
-  if (process.env.NODE_ENV === 'production') {
-    return NextResponse.json(
-      { error: 'This endpoint is only available in development' },
-      { status: 403 }
-    );
-  }
+  const blocked = notFoundInProduction();
+  if (blocked) return blocked;
 
   try {
     const users = await db.user.findMany({

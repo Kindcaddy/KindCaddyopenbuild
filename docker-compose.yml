@@ -1,0 +1,57 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kindcaddy
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: kindcaddy
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kindcaddy"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # No published ports — internal to the compose network only.
+
+  hermes:
+    build: ./hermes-agent
+    restart: unless-stopped
+    env_file: ./hermes-agent/.env.production
+    ports:
+      - "127.0.0.1:8642:8642"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; r=urllib.request.urlopen('http://localhost:8642/health',timeout=5); sys.exit(0 if r.status==200 else 1)\""]
+      interval: 10s
+      timeout: 8s
+      retries: 12
+      start_period: 60s
+
+  app:
+    build: ./frontend
+    restart: unless-stopped
+    env_file: ./frontend/.env.production
+    depends_on:
+      db:
+        condition: service_healthy
+      hermes:
+        condition: service_started
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  caddy_data:

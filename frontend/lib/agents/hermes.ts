@@ -12,6 +12,43 @@ import type { ChatTurn, LLMToolCall } from '../llm/types';
 import type { MCPClient } from '../mcp/client';
 import type { JsonValue } from '../mcp/protocol';
 import type { RegisteredTool } from '../mcp/registry';
+import { newRequestId, reportError } from '../errors';
+
+/**
+ * Hermes could not be reached at all (connection refused, DNS, TLS). The
+ * chat route maps this to a fast 503 `assistant_unavailable` instead of a
+ * long hang. PRODUCTION-PLAN.md Phase 4.
+ */
+export class HermesUnreachableError extends Error {
+  constructor(message: string, readonly cause?: unknown) {
+    super(message);
+    this.name = 'HermesUnreachableError';
+  }
+}
+
+/** Hermes was reachable but a round failed (HTTP error or timeout). */
+export class HermesMidturnError extends Error {
+  constructor(message: string, readonly cause?: unknown) {
+    super(message);
+    this.name = 'HermesMidturnError';
+  }
+}
+
+/**
+ * Last time any Hermes round succeeded. Lets error reporting escalate
+ * severity to `fatal` when the agent has been down for an extended window
+ * rather than a blip.
+ */
+let lastHermesOkAt: number | null = null;
+
+const HERMES_OUTAGE_FATAL_AFTER_MS = 5 * 60 * 1000;
+
+export function hermesOutageSeverity(): 'error' | 'fatal' {
+  if (lastHermesOkAt === null) return 'error';
+  return Date.now() - lastHermesOkAt > HERMES_OUTAGE_FATAL_AFTER_MS
+    ? 'fatal'
+    : 'error';
+}
 
 interface HermesChatResponse {
   choices?: Array<{
@@ -45,8 +82,42 @@ export class ExternalHermesAgent {
     const availableTools = this.listTools();
     const turns: ChatTurn[] = [...input.history];
     let finalContent = '';
+    const turnStartedAt = Date.now();
+    const turnBudgetMs = this.turnBudgetMs();
+    let budgetExceeded = false;
 
     for (let round = 0; round < this.maxRounds(); round++) {
+      // Overall per-turn deadline (Phase 2.3): if the budget is exhausted
+      // between rounds, stop looping and return the best partial answer.
+      // Repeated blowouts are a tuning signal, so each one is persisted as
+      // a warning-severity ErrorReport — never silently absorbed.
+      if (round > 0 && Date.now() - turnStartedAt > turnBudgetMs) {
+        input.trace.push({
+          type: 'llm',
+          at: new Date().toISOString(),
+          label: `${this.name} · turn budget`,
+          summary: `ran out of time after ${round} round(s) (budget ${turnBudgetMs}ms) — returning partial answer`,
+          durationMs: Date.now() - turnStartedAt,
+        });
+        await reportError(
+          new Error(
+            `Chat turn exceeded HERMES_AGENT_TURN_BUDGET_MS (${turnBudgetMs}ms)`,
+          ),
+          {
+            requestId: input.requestId ?? newRequestId(),
+            route: 'agent.hermes',
+            code: 'turn_budget_exceeded',
+            severity: 'warning',
+            userId: input.context.userId,
+            tenantId: input.context.tenantId,
+            context: { sessionId: input.sessionId, roundsCompleted: round },
+          },
+        );
+        budgetExceeded = true;
+        break;
+      }
+
+      input.onEvent?.({ kind: 'thinking' });
       const t0 = Date.now();
       const response = await this.chat(turns, availableTools, input);
       const toolCalls =
@@ -76,17 +147,23 @@ export class ExternalHermesAgent {
       });
 
       if (requestedToolCalls.length === 0) {
+        input.onEvent?.({ kind: 'composing' });
         finalContent = response.content || finalContent;
         break;
       }
 
       for (const call of requestedToolCalls) {
+        input.onEvent?.({ kind: 'tool_start', tool: call.name });
         const tStart = Date.now();
         const result = await this.mcp.invoke(
           call.name,
           call.arguments as JsonValue,
           input.context,
-          { sessionId: input.sessionId, messageId: input.assistantMessageId },
+          {
+            sessionId: input.sessionId,
+            messageId: input.assistantMessageId,
+            requestId: input.requestId,
+          },
         );
         input.trace.push({
           type: 'tool',
@@ -94,6 +171,12 @@ export class ExternalHermesAgent {
           label: call.name,
           summary: result.summary,
           durationMs: Date.now() - tStart,
+        });
+        input.onEvent?.({
+          kind: 'tool_result',
+          tool: call.name,
+          ok: result.ok,
+          summary: result.summary,
         });
         turns.push({
           role: 'tool',
@@ -112,7 +195,12 @@ export class ExternalHermesAgent {
 
     if (!finalContent) {
       const lastAssistant = [...turns].reverse().find((turn) => turn.role === 'assistant');
-      finalContent = lastAssistant?.content || 'Done.';
+      finalContent = lastAssistant?.content || (budgetExceeded ? '' : 'Done.');
+    }
+    if (budgetExceeded) {
+      const note =
+        'I ran out of time before fully completing this request — here is what I have so far. Please retry or narrow the request.';
+      finalContent = finalContent ? `${finalContent}\n\n_${note}_` : note;
     }
 
     return { finalContent, turns };
@@ -123,25 +211,44 @@ export class ExternalHermesAgent {
     tools: RegisteredTool[],
     input: AgentStepInput,
   ): Promise<{ content: string; toolCalls: LLMToolCall[] }> {
-    const res = await fetch(`${this.apiBaseUrl()}/chat/completions`, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify({
-        model: this.model(),
-        messages: [
-          { role: 'system', content: this.systemPrompt(input, tools) },
-          ...turns.map(toOpenAIMessage),
-          ...buildToolResultNudge(turns.at(-1)),
-        ],
-        tools: tools.map(toOpenAITool),
-        tool_choice: tools.length > 0 ? 'auto' : undefined,
-      }),
-      signal: AbortSignal.timeout(this.timeoutMs()),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${this.apiBaseUrl()}/chat/completions`, {
+        method: 'POST',
+        headers: this.headers(input.requestId),
+        body: JSON.stringify({
+          model: this.model(),
+          messages: [
+            { role: 'system', content: this.systemPrompt(input, tools) },
+            ...turns.map(toOpenAIMessage),
+            ...buildToolResultNudge(turns.at(-1)),
+          ],
+          tools: tools.map(toOpenAITool),
+          tool_choice: tools.length > 0 ? 'auto' : undefined,
+        }),
+        signal: AbortSignal.timeout(this.timeoutMs()),
+      });
+    } catch (err) {
+      // Timeout = Hermes accepted the connection but a round overran; a
+      // rejected fetch with no response = nothing is listening at all.
+      if (err instanceof Error && err.name === 'TimeoutError') {
+        throw new HermesMidturnError(
+          `Hermes Agent timed out after ${this.timeoutMs()}ms`,
+          err,
+        );
+      }
+      throw new HermesUnreachableError(
+        `Hermes Agent is unreachable at ${this.apiBaseUrl()}`,
+        err,
+      );
+    }
 
     if (!res.ok) {
-      throw new Error(`Hermes Agent API error: ${res.status} ${await res.text()}`);
+      throw new HermesMidturnError(
+        `Hermes Agent API error: ${res.status} ${await res.text()}`,
+      );
     }
+    lastHermesOkAt = Date.now();
 
     const data = (await res.json()) as HermesChatResponse;
     const message = data.choices?.[0]?.message;
@@ -178,21 +285,31 @@ export class ExternalHermesAgent {
   }
 
   private timeoutMs(): number {
-    const value = Number(process.env.HERMES_AGENT_TIMEOUT_MS ?? 120000);
-    return Number.isFinite(value) && value > 0 ? value : 120000;
+    const value = Number(process.env.HERMES_AGENT_TIMEOUT_MS ?? 60000);
+    return Number.isFinite(value) && value > 0 ? value : 60000;
   }
 
   private maxRounds(): number {
-    const value = Number(process.env.HERMES_AGENT_MAX_TOOL_ROUNDS ?? 8);
-    return Number.isFinite(value) && value > 0 ? value : 8;
+    const value = Number(process.env.HERMES_AGENT_MAX_TOOL_ROUNDS ?? 5);
+    return Number.isFinite(value) && value > 0 ? value : 5;
   }
 
-  private headers(): Record<string, string> {
+  /** Overall per-turn deadline across all rounds (Phase 2.3). */
+  private turnBudgetMs(): number {
+    const value = Number(process.env.HERMES_AGENT_TURN_BUDGET_MS ?? 180000);
+    return Number.isFinite(value) && value > 0 ? value : 180000;
+  }
+
+  private headers(requestId?: string): Record<string, string> {
     const headers: Record<string, string> = {
       'content-type': 'application/json',
     };
     if (process.env.HERMES_AGENT_API_KEY) {
       headers.authorization = `Bearer ${process.env.HERMES_AGENT_API_KEY}`;
+    }
+    // Correlates Hermes-side logs with the app-side ErrorReport / response.
+    if (requestId) {
+      headers['x-request-id'] = requestId;
     }
     return headers;
   }

@@ -14,9 +14,23 @@ export interface AgentStepInput {
   history: ChatTurn[];
   sessionId: string;
   assistantMessageId: string;
+  /** Correlation id from withGuard; forwarded to Hermes and tool calls. */
+  requestId?: string;
   /** The parent orchestrator trace (tool calls are appended here). */
   trace: AgentTraceEntry[];
+  /** Optional live-progress callback (SSE streaming, Phase 5). */
+  onEvent?: (event: AgentProgressEvent) => void;
 }
+
+/**
+ * Interim progress emitted while a turn is running. Consumed by the SSE
+ * stream in /api/mcp/chat; persistence (messages/trace) is unaffected.
+ */
+export type AgentProgressEvent =
+  | { kind: 'thinking' }
+  | { kind: 'tool_start'; tool: string }
+  | { kind: 'tool_result'; tool: string; ok: boolean; summary: string }
+  | { kind: 'composing' };
 
 export interface AgentTraceEntry {
   type: 'llm' | 'tool';

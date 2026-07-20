@@ -12,6 +12,7 @@
 
 import { db } from '../db';
 import type { RequestContext } from '../context';
+import { AppError } from '../errors';
 import { mcp } from '../mcp';
 import { activeTenantMcpDomains } from '../mcp/domain-settings';
 import { listUserMcpDomains } from '../mcp/user-domain-settings';
@@ -21,7 +22,7 @@ import {
   type ChatDomain,
 } from '../mcp/domain-catalog';
 import { ExternalHermesAgent } from '../agents/hermes';
-import type { AgentTraceEntry } from '../agents/base';
+import type { AgentProgressEvent, AgentTraceEntry } from '../agents/base';
 import { SessionManager } from './session';
 
 export type AgentId = 'hermes';
@@ -33,6 +34,8 @@ export interface ChatRequest {
   agent?: AgentId;
   /** Limit exposed tools to a domain-specific MCP slice. */
   domain?: ChatDomain;
+  /** Correlation id from withGuard; rides into traces and error reports. */
+  requestId?: string;
 }
 
 export interface ChatResponse {
@@ -58,16 +61,20 @@ export class Host {
     return this.sessions.create(ctx, title);
   }
 
-  async chat(ctx: RequestContext, req: ChatRequest): Promise<ChatResponse> {
+  async chat(
+    ctx: RequestContext,
+    req: ChatRequest,
+    onEvent?: (event: AgentProgressEvent) => void,
+  ): Promise<ChatResponse> {
     const message = (req.message ?? '').trim();
-    if (!message) throw new Error('message is required');
+    if (!message) throw new AppError('invalid_request', 'message is required', 400);
 
     // 1. Resolve / create session, enforce ownership.
     let session = req.sessionId
       ? await this.sessions.getOwned(ctx, req.sessionId)
       : null;
     if (req.sessionId && !session) {
-      throw new Error('Session not found');
+      throw new AppError('session_not_found', 'Session not found', 404);
     }
     if (!session) {
       const created = await this.sessions.create(ctx, deriveTitle(message));
@@ -97,7 +104,11 @@ export class Host {
 
     const tenantDomains = await activeTenantMcpDomains(ctx.tenantId);
     if (tenantDomains.length === 0) {
-      throw new Error('No MCP domains are active for this tenant');
+      throw new AppError(
+        'no_active_domains',
+        'No MCP domains are active for this tenant',
+        409,
+      );
     }
     // Employees are further restricted by per-user admin-managed allow-list.
     let activeDomains = tenantDomains;
@@ -108,8 +119,10 @@ export class Host {
       );
       activeDomains = tenantDomains.filter((d) => allowedIds.has(d.id));
       if (activeDomains.length === 0) {
-        throw new Error(
+        throw new AppError(
+          'domain_access_denied',
           'You do not have access to any MCP domains. Ask an admin to grant access.',
+          403,
         );
       }
     }
@@ -118,8 +131,10 @@ export class Host {
       : activeDomains[0].id;
     const activeDomain = activeDomains.find((domain) => domain.id === requestedDomain);
     if (!activeDomain) {
-      throw new Error(
+      throw new AppError(
+        'domain_unavailable',
         `MCP domain "${requestedDomain}" is not available for your account`,
+        403,
       );
     }
     const domainDefinition = getDomainDefinition(activeDomain.id);
@@ -131,13 +146,34 @@ export class Host {
       mcp.client,
       () => mcp.registry.listTools().filter((tool) => allowedServers.has(tool.server)),
     );
-    const { finalContent } = await agent.step({
-      context: ctx,
-      history: [...history, { role: 'user', content: message }],
-      sessionId: session.id,
-      assistantMessageId: assistant.id,
-      trace,
-    });
+    let finalContent: string;
+    try {
+      const result = await agent.step({
+        context: ctx,
+        history: [...history, { role: 'user', content: message }],
+        sessionId: session.id,
+        assistantMessageId: assistant.id,
+        requestId: req.requestId,
+        trace,
+        onEvent,
+      });
+      finalContent = result.finalContent;
+    } catch (err) {
+      // The turn died mid-flight. Finalize the placeholder so the session
+      // never shows a forever-pending assistant message; the guard's
+      // catch-all persists the ErrorReport when this rethrows.
+      await this.sessions.updateMessage(assistant.id, {
+        content: '',
+        metadata: JSON.stringify({
+          agent: agentId,
+          error: true,
+          requestId: req.requestId ?? null,
+          domain: activeDomain.id,
+          trace,
+        }),
+      });
+      throw err;
+    }
 
     // 6. Update assistant message, session memory, audit log.
     await this.sessions.updateMessage(assistant.id, {

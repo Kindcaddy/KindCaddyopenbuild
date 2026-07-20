@@ -103,6 +103,61 @@ const EXAMPLES: Record<ChatDomain, string[]> = {
   ],
 };
 
+interface StreamStatusEvent {
+  kind: "thinking" | "tool_start" | "tool_result" | "composing";
+  tool?: string;
+  ok?: boolean;
+  summary?: string;
+}
+
+function statusLabel(e: StreamStatusEvent): string {
+  switch (e.kind) {
+    case "thinking":
+      return "Thinking…";
+    case "tool_start":
+      return `Using ${e.tool}…`;
+    case "tool_result":
+      return e.ok ? `Finished ${e.tool}` : `${e.tool} did not succeed`;
+    case "composing":
+      return "Composing reply…";
+  }
+}
+
+/** Minimal SSE reader over fetch — keeps us off EventSource (POST body). */
+async function readSse(
+  res: Response,
+  onEvent: (event: string, data: unknown) => void,
+): Promise<void> {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buf.indexOf("\n\n")) >= 0) {
+      const raw = buf.slice(0, idx);
+      buf = buf.slice(idx + 2);
+      let event = "message";
+      let data = "";
+      for (const line of raw.split("\n")) {
+        if (line.startsWith("event: ")) event = line.slice(7).trim();
+        else if (line.startsWith("data: ")) data += line.slice(6);
+      }
+      if (data) {
+        try {
+          onEvent(event, JSON.parse(data));
+        } catch {
+          // Malformed frame; skip it rather than killing the stream.
+        }
+      }
+    }
+  }
+}
+
+const draftKey = (sessionId: string | null) => `kc_draft_${sessionId ?? "new"}`;
+
 export default function AssistantPage() {
   const [roleView, setRoleView] = useState<"admin" | "employee">("employee");
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -117,6 +172,10 @@ export default function AssistantPage() {
   const [loading, setLoading] = useState(false);
   const [domainMenuOpen, setDomainMenuOpen] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [statusText, setStatusText] = useState<string | null>(null);
+  const [banner, setBanner] = useState<string | null>(null);
+  const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
+  const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -174,7 +233,30 @@ export default function AssistantPage() {
     });
   }, [messages, loading]);
 
-  const send = async (text: string) => {
+  // Session resilience (Phase 5.3): the draft survives reloads and network
+  // failures; it is only cleared on a successful send.
+  useEffect(() => {
+    const saved = window.localStorage.getItem(draftKey(currentId));
+    if (saved) setInput(saved);
+  }, [currentId]);
+
+  useEffect(() => {
+    if (input) window.localStorage.setItem(draftKey(currentId), input);
+    else window.localStorage.removeItem(draftKey(currentId));
+  }, [input, currentId]);
+
+  const finishTurn = useCallback(
+    async (sessionId: string) => {
+      setCurrentId(sessionId);
+      window.localStorage.removeItem(draftKey(currentId));
+      window.localStorage.removeItem(draftKey(sessionId));
+      setLastFailedMessage(null);
+      await Promise.all([loadMessages(sessionId), loadSessions()]);
+    },
+    [currentId, loadMessages, loadSessions],
+  );
+
+  const send = async (text: string, opts: { isRetry?: boolean } = {}) => {
     const message = text.trim();
     if (!message || loading) return;
     if (!selectedDomain) {
@@ -190,10 +272,14 @@ export default function AssistantPage() {
     setInput("");
     setLoading(true);
     setErr(null);
+    setBanner(null);
+    setRetryCountdown(null);
+    setStatusText("Sending…");
 
     // Optimistic user bubble.
+    const optimisticId = `tmp_${Date.now()}`;
     const optimistic: ChatMessage = {
-      id: `tmp_${Date.now()}`,
+      id: optimisticId,
       role: "user",
       agent: null,
       content: message,
@@ -202,29 +288,132 @@ export default function AssistantPage() {
       invocations: [],
     };
     setMessages((m) => [...m, optimistic]);
+    const removeOptimistic = () =>
+      setMessages((m) => m.filter((msg) => msg.id !== optimisticId));
+
+    const payload = JSON.stringify({
+      sessionId: currentId ?? undefined,
+      message: withAttachmentContext(message, files),
+      agent,
+      domain: selectedDomain.id,
+      stream: true,
+    });
+
+    const failTurn = (errorText: string) => {
+      removeOptimistic();
+      setErr(errorText);
+      setLastFailedMessage(message);
+    };
 
     try {
-      const r = await fetch("/api/mcp/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          sessionId: currentId ?? undefined,
-          message: withAttachmentContext(message, files),
-          agent,
-          domain: selectedDomain.id,
-        }),
-      });
+      let r: Response;
+      try {
+        r = await fetch("/api/mcp/chat", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "text/event-stream",
+          },
+          body: payload,
+        });
+      } catch {
+        // Stream failed to open (network hiccup): fall back to plain JSON.
+        r = await fetch("/api/mcp/chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: payload.replace('"stream":true', '"stream":false'),
+        });
+      }
+
+      if (r.status === 429) {
+        const j = (await r.json().catch(() => ({}))) as {
+          error?: string;
+          retryAfterSec?: number;
+        };
+        const wait = Math.min(Math.max(j.retryAfterSec ?? 5, 1), 60);
+        removeOptimistic();
+        if (!opts.isRetry) {
+          // Graceful rate-limit feedback (Phase 5.2): countdown + one
+          // automatic retry instead of a raw error.
+          setInput(message);
+          setRetryCountdown(wait);
+          let remaining = wait;
+          const timer = setInterval(() => {
+            remaining -= 1;
+            if (remaining <= 0) {
+              clearInterval(timer);
+              setRetryCountdown(null);
+              void send(message, { isRetry: true });
+            } else {
+              setRetryCountdown(remaining);
+            }
+          }, 1000);
+        } else {
+          failTurn(
+            j.error === "busy"
+              ? "The assistant is at capacity right now. Please try again in a moment."
+              : "You're sending messages quickly. Please wait a moment and try again.",
+          );
+        }
+        return;
+      }
+
+      if (r.status === 503) {
+        removeOptimistic();
+        setBanner(
+          "The assistant is temporarily unavailable. Your message wasn't lost — try sending it again in a moment.",
+        );
+        setInput(message);
+        setLastFailedMessage(message);
+        return;
+      }
+
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error((j as { error?: string }).error ?? `HTTP ${r.status}`);
+        failTurn((j as { error?: string }).error ?? `HTTP ${r.status}`);
+        return;
       }
-      const j = (await r.json()) as { sessionId: string };
-      setCurrentId(j.sessionId);
-      await Promise.all([loadMessages(j.sessionId), loadSessions()]);
+
+      const contentType = r.headers.get("content-type") ?? "";
+      if (contentType.includes("text/event-stream")) {
+        let finished = false;
+        await readSse(r, (event, data) => {
+          if (event === "status") {
+            setStatusText(statusLabel(data as StreamStatusEvent));
+          } else if (event === "done") {
+            finished = true;
+            const j = data as { sessionId: string };
+            void finishTurn(j.sessionId);
+          } else if (event === "error") {
+            finished = true;
+            const j = data as { code?: string; requestId?: string };
+            if (j.code === "assistant_unavailable") {
+              removeOptimistic();
+              setBanner(
+                "The assistant is temporarily unavailable. Try again in a moment.",
+              );
+              setInput(message);
+              setLastFailedMessage(message);
+            } else {
+              failTurn(
+                `Something went wrong${j.requestId ? ` (reference: ${j.requestId})` : ""}. Please try again.`,
+              );
+            }
+          }
+        });
+        if (!finished) {
+          // The stream closed without done/error — treat as a failed turn.
+          failTurn("The connection dropped mid-reply. Please retry.");
+        }
+      } else {
+        const j = (await r.json()) as { sessionId: string };
+        await finishTurn(j.sessionId);
+      }
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to send");
+      failTurn(e instanceof Error ? e.message : "Failed to send");
     } finally {
       setLoading(false);
+      setStatusText(null);
       setFiles([]);
     }
   };
@@ -363,6 +552,19 @@ export default function AssistantPage() {
             </span>
           </div>
 
+          {banner && (
+            <div className="mx-4 mt-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 flex items-start justify-between gap-3">
+              <p className="text-sm text-amber-800 dark:text-amber-300">{banner}</p>
+              <button
+                type="button"
+                onClick={() => setBanner(null)}
+                className="text-xs text-amber-700 dark:text-amber-400 hover:underline shrink-0"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
           <div ref={scrollerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
             {messages.length === 0 && !loading && (
               <div className="text-sm text-gray-600 dark:text-gray-400 space-y-3">
@@ -394,11 +596,28 @@ export default function AssistantPage() {
             {loading && (
               <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Thinking…
+                {statusText ?? "Thinking…"}
+              </div>
+            )}
+            {retryCountdown !== null && (
+              <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                You&apos;re sending messages quickly — retrying in {retryCountdown}s…
               </div>
             )}
             {err && (
-              <div className="text-sm text-red-600 dark:text-red-400">Error: {err}</div>
+              <div className="text-sm text-red-600 dark:text-red-400 flex items-center gap-3">
+                <span>Error: {err}</span>
+                {lastFailedMessage && !loading && (
+                  <button
+                    type="button"
+                    onClick={() => send(lastFailedMessage)}
+                    className="text-xs px-2 py-1 rounded border border-red-300 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/30"
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -592,6 +811,34 @@ function withAttachmentContext(message: string, files: File[]): string {
   return `${message}\n\nAttached files:\n${lines.join("\n")}`;
 }
 
+interface DenialInfo {
+  tool: string;
+  alternative?: string;
+}
+
+/**
+ * Surface scope denials with the policy gate's suggested alternative
+ * (Phase 5.2) — the gate already computes this; it used to be buried in the
+ * trace JSON.
+ */
+function scopeDenials(m: ChatMessage): DenialInfo[] {
+  return m.invocations
+    .filter((inv) => {
+      if (inv.status !== "denied") return false;
+      const result = inv.result as { error?: { gate?: string } } | null;
+      return result?.error?.gate === "scope";
+    })
+    .map((inv) => {
+      const result = inv.result as {
+        error?: { suggested_alternative?: string };
+      } | null;
+      return {
+        tool: `${inv.server}.${inv.tool}`,
+        alternative: result?.error?.suggested_alternative,
+      };
+    });
+}
+
 function MessageView({ m }: { m: ChatMessage }) {
   if (m.role === "user") {
     return (
@@ -622,6 +869,24 @@ function MessageView({ m }: { m: ChatMessage }) {
           ))}
         </div>
       )}
+      {scopeDenials(m).map((denial) => (
+        <div
+          key={denial.tool}
+          className="text-xs px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300"
+        >
+          I can&apos;t access <code className="font-mono">{denial.tool}</code> with
+          your current permissions
+          {denial.alternative ? (
+            <>
+              , but I can use{" "}
+              <code className="font-mono">{denial.alternative}</code> instead —
+              try asking for that.
+            </>
+          ) : (
+            ". Ask an admin if you need this."
+          )}
+        </div>
+      ))}
       {trace.length > 0 && (
         <details className="text-[11px] text-gray-500 dark:text-gray-400">
           <summary className="cursor-pointer">trace ({trace.length} steps)</summary>

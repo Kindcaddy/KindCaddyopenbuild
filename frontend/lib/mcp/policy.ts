@@ -30,9 +30,11 @@ const CAPABILITY_MIN_ROLE: Record<
 
 /**
  * Token-bucket rate limiter scoped per (tenant, user).
- * Kept in-process for simplicity; production would back this with Redis.
+ * Kept in-process for simplicity; single-instance deployments only — move to
+ * Redis when replicas are introduced (PRODUCTION-PLAN.md Phase 6). Exported
+ * so lib/rate-limit.ts reuses the same implementation for chat turns.
  */
-class RateLimiter {
+export class RateLimiter {
   private buckets = new Map<string, { tokens: number; updatedAt: number }>();
   constructor(
     private capacity: number,
@@ -58,6 +60,15 @@ class RateLimiter {
     b.tokens -= cost;
     this.buckets.set(key, b);
     return true;
+  }
+
+  /** Seconds until `cost` tokens will be available for `key` (for Retry-After). */
+  retryAfterSec(key: string, cost = 1): number {
+    const b = this.buckets.get(key);
+    if (!b || this.refillPerSec <= 0) return 1;
+    const deficit = cost - b.tokens;
+    if (deficit <= 0) return 1;
+    return Math.max(1, Math.ceil(deficit / this.refillPerSec));
   }
 }
 

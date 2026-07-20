@@ -1,34 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createHmac, randomBytes } from 'node:crypto';
 import { withGuard } from '@/lib/guard';
-import { buildAuthorizeUrl } from '@/lib/integrations/quickbooks';
+import { reportError } from '@/lib/errors';
+import { signState } from '@/lib/crypto';
+import {
+  buildAuthorizeUrl,
+  QBO_OAUTH_STATE_COOKIE,
+} from '@/lib/integrations/quickbooks';
 
-/**
- * Sign the OAuth `state` so the callback can prove this flow originated from
- * a real authenticated session of *this* user, not a CSRF-forged callback.
- *
- * Format: `<userId>.<nonce>.<hmac>`
- * The HMAC key is APP_ENC_KEY (already required for envelope encryption).
- */
-function signState(userId: string): string {
-  const secret = process.env.APP_ENC_KEY;
-  if (!secret) {
-    throw new Error('APP_ENC_KEY is required to sign OAuth state');
-  }
-  const nonce = randomBytes(16).toString('hex');
-  const payload = `${userId}.${nonce}`;
-  const mac = createHmac('sha256', secret).update(payload).digest('hex');
-  return `${payload}.${mac}`;
-}
-
-export const GET = withGuard(async (_req: NextRequest, context) => {
+export const GET = withGuard(async (req: NextRequest, context, { requestId }) => {
   try {
-    const state = signState(context.user.id);
+    // CSRF protection: `state` binds the callback to this user + tenant + nonce.
+    // Same pattern as Google Calendar OAuth (PRODUCTION-PLAN.md Phase 3.2).
+    const nonce = crypto.randomUUID();
+    const mac = signState(`${context.userId}:${context.tenantId}:${nonce}`);
+    const state = `${nonce}.${mac}`;
+
     const url = buildAuthorizeUrl(state);
-    return NextResponse.redirect(url);
+
+    const res = NextResponse.redirect(url);
+    res.cookies.set(QBO_OAUTH_STATE_COOKIE, nonce, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 600,
+      path: '/api/integrations/quickbooks',
+    });
+    return res;
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : 'Failed to start QuickBooks OAuth';
-    return NextResponse.json({ error: message }, { status: 500 });
+    await reportError(err, {
+      requestId,
+      route: `GET ${req.nextUrl.pathname}`,
+      code: 'qbo_oauth_start_failed',
+      userId: context.userId,
+      tenantId: context.tenantId,
+    });
+    return NextResponse.json(
+      { error: 'qbo_oauth_start_failed', requestId },
+      { status: 500 },
+    );
   }
 });

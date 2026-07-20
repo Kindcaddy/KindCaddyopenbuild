@@ -1,9 +1,12 @@
 import { google } from 'googleapis';
 import type { OAuth2Client } from 'google-auth-library';
 import { db } from '@/lib/db';
-import { decryptResourceData, encrypt } from '@/lib/crypto';
+import { decryptString, encryptString } from '@/lib/crypto';
 
 const GOOGLE_CALENDAR_RESOURCE_NAME = 'google_calendar_connection';
+
+/** Short-lived nonce cookie for the OAuth `state` round-trip (Phase 3.2). */
+export const GOOGLE_OAUTH_STATE_COOKIE = 'google_oauth_state';
 
 export const GOOGLE_CALENDAR_SCOPES = [
   'https://www.googleapis.com/auth/calendar',
@@ -39,7 +42,10 @@ export function createGoogleOAuthClient(): OAuth2Client {
 
 function parseConnectionData(raw: string): StoredGoogleCalendarConnection | null {
   try {
-    const parsed = JSON.parse(raw) as Partial<StoredGoogleCalendarConnection>;
+    // Tokens are AES-256-GCM encrypted at rest (Phase 3.5); decryptString
+    // passes legacy plaintext rows through until the one-off migration
+    // (scripts/encrypt-resources.ts) has run.
+    const parsed = JSON.parse(decryptString(raw)) as Partial<StoredGoogleCalendarConnection>;
     if (!parsed || typeof parsed.refreshToken !== 'string') return null;
     return {
       refreshToken: parsed.refreshToken,
@@ -74,8 +80,7 @@ export async function getStoredGoogleCalendarConnection(
 ): Promise<StoredGoogleCalendarConnection | null> {
   const row = await findConnection(scope);
   if (!row) return null;
-  const plaintext = await decryptResourceData(row.data);
-  return parseConnectionData(plaintext);
+  return parseConnectionData(row.data);
 }
 
 export async function saveGoogleCalendarConnection(
@@ -93,12 +98,13 @@ export async function saveGoogleCalendarConnection(
     connectedAt: new Date().toISOString(),
     email: input.email,
   };
-  const encrypted = await encrypt(JSON.stringify(data));
+
+  const payload = encryptString(JSON.stringify(data));
 
   if (existing) {
     await db.resource.update({
       where: { id: existing.id },
-      data: { data: encrypted },
+      data: { data: payload },
     });
     return;
   }
@@ -109,7 +115,7 @@ export async function saveGoogleCalendarConnection(
       departmentId: scope.departmentId,
       createdBy: scope.userId,
       name: GOOGLE_CALENDAR_RESOURCE_NAME,
-      data: encrypted,
+      data: payload,
     },
   });
 }

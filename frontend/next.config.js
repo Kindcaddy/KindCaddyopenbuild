@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   async headers() {
     // Only apply strict security headers in production
     // In development, use relaxed headers for Safari compatibility
@@ -27,11 +28,11 @@ const nextConfig = {
                   "img-src 'self' data: https:",
                   // Fonts: Allow self and data URIs
                   "font-src 'self' data:",
-                  // API connections: Allow same origin and external services
-                  // Google Analytics: Allow tracking API calls
-                  // SendGrid: Allow email service API calls
-                  // Localhost: Allow local AI API connections (development only)
-                  "connect-src 'self' https://www.google-analytics.com https://www.googletagmanager.com https://www.google.com https://api.sendgrid.com http://localhost:* ws://localhost:*",
+                  // API connections: same origin + analytics only. All AI /
+                  // email / integration traffic is server-side, so the
+                  // browser never needs localhost, SendGrid, or provider
+                  // origins here (PRODUCTION-PLAN.md Phase 3.3).
+                  "connect-src 'self' https://www.google-analytics.com https://www.googletagmanager.com https://www.google.com",
                   // Prevent embedding in iframes (clickjacking protection)
                   "frame-ancestors 'none'",
                   // Base URI: Only allow same origin

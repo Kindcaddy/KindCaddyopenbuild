@@ -1,137 +1,124 @@
-# Kindcaddy — Frontend (Next.js 14)
+# Kindcaddy Frontend for small and mid size business
 
-The web app: UI, API routes, MCP framework, agent bridge, RBAC, and audit. All of Kindcaddy's runtime logic lives here.
+A modern SaaS platform frontend built with Next.js, TypeScript, and Tailwind CSS.
 
-For the project overview, see the [top-level README](../README.md). For the architecture, see [`ARCHITECTURE.md`](../ARCHITECTURE.md).
+## Features
 
-## Quickstart
+- 🚀 Next.js 14 with App Router
+- 💎 TypeScript for type safety
+- 🎨 Tailwind CSS for styling
+- 🌙 Dark mode support
+- 📱 Responsive design
+- 🔐 Authentication pages (Login/Signup)
+- 📊 Dashboard with analytics
+
+## Getting Started
+
+### Install Dependencies
 
 ```bash
-cp .env.example .env
-npm ci
-npm run db:reset    # creates SQLite + seeds demo users/tenants/departments
-npm run dev         # http://localhost:3000
+npm install
 ```
 
-Demo login: `demo@kindcaddy.com` / `demo123` (dev-only, gated by `NODE_ENV`).
+### Run Development Server
 
-## Scripts
+```bash
+npm run dev
+```
 
-| Command | What it does |
-|---|---|
-| `npm run dev` | Start Next.js dev server with hot reload |
-| `npm run build` | Production build |
-| `npm start` | Run the production build |
-| `npm test` | Run unit + integration tests once |
-| `npm run test:watch` | Run tests in watch mode |
-| `npm run db:migrate` | Apply pending Prisma migrations |
-| `npm run db:seed` | Seed the database from `prisma/seed.ts` |
-| `npm run db:reset` | Drop, migrate, and re-seed (dev only — destructive) |
-| `npm run lint` | ESLint |
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-## Project structure
+### Build for Production
+
+```bash
+npm run build
+npm start
+```
+
+## Project Structure
 
 ```
 frontend/
-├── app/                          Next.js App Router
-│   ├── api/                      API route handlers
-│   │   ├── me/                   Current user / context
-│   │   ├── mcp/                  Chat, tools, sessions, audit, domains
-│   │   ├── integrations/         OAuth flows (Google today)
-│   │   ├── admin/                Tenant/user admin
-│   │   ├── resources/            Resource CRUD
-│   │   └── dev/                  Dev-only login/logout/whoami (gated by NODE_ENV)
-│   ├── app/                      Authenticated user surface (/app/*)
-│   ├── admin/                    Admin surface (/admin/*)
-│   ├── login/                    Public login page
-│   ├── dashboard/                Legacy dashboard
-│   ├── layout.tsx, page.tsx      Root layout + landing
-│   └── globals.css
-│
-├── lib/                          Runtime logic
-│   ├── auth.ts                   Cookie parser + setter
-│   ├── guard.ts                  withGuard wrapper for API routes
-│   ├── rbac.ts                   Role → capability matrix
-│   ├── context.ts                RequestContext type
-│   ├── db.ts                     Singleton Prisma client
-│   ├── host/                     Chat orchestration (host, session manager)
-│   ├── agents/                   Agent bridge (Hermes external, base interface)
-│   ├── llm/                      LLM adapters (openai, mock, factory)
-│   ├── mcp/                      MCP framework (client, registry, policy, protocol,
-│   │                             normalize, domain catalog, domain settings, servers/)
-│   └── integrations/             External SaaS clients (google-calendar.ts)
-│
-├── components/                   React components
-│   ├── ui/                       Reusable primitives (Button, Card, etc.)
-│   └── UserProfileDropdown.tsx
-│
-├── prisma/
-│   ├── schema.prisma             Data model (User, Tenant, Department, Membership,
-│   │                             Resource, ChatSession, ChatMessage, ToolInvocation,
-│   │                             AuditEvent, TenantMcpDomain)
-│   ├── migrations/
-│   └── seed.ts                   Deterministic demo data
-│
-└── __tests__/                    Test suite — see ../TESTING.md
-    ├── lib/                      Unit tests
-    ├── integration/              Cross-layer tests with real DB
-    └── api/                      API route tests
+├── app/
+│   ├── app/           # Customer/User Interface
+│   │   ├── page.tsx   # Customer dashboard
+│   │   ├── profile/   # User profile page
+│   │   ├── billing/   # Billing & subscription(intneral billing to department connceting to netsuite transactions)
+│   │   └── settings/  # User settings
+│   ├── admin/         # Admin Interface
+│   │   ├── page.tsx   # Admin dashboard
+│   │   ├── users/     # User management
+│   │   ├── analytics/ # Analytics & reports
+│   │   └── settings/  # Admin settings
+│   ├── login/         # Login page
+│   ├── layout.tsx     # Root layout
+│   ├── page.tsx       # Landing page
+│   └── globals.css    # Global styles
+├── components/        # Reusable components
+│   └── ui/           # UI components (Button, Card, etc.)
+├── public/           # Static assets
+└── package.json      # Dependencies
 ```
 
-## Two user surfaces
+## Two User Interfaces
 
-### `/app/*` — authenticated user
+### 1. Customer/User Interface (`/app/*`)
+Designed for end-users to manage their accounts and use the platform:
+- **`/app`** - Customer dashboard with overview, projects, and quick actions
+- **`/app/profile`** - User profile management
+- **`/app/billing`** - Subscription and billing management
+- **`/app/settings`** - User preferences and settings
 
-| Route | Purpose |
-|---|---|
-| `/app` | User dashboard |
-| `/app/assistant` | The chat surface; primary product entry point |
-| `/app/profile` | Profile + identity |
-| `/app/configuration` | Per-user integration setup (Google Calendar, etc.) |
-| `/app/access-control` | Role-aware view of what the user can access |
-| `/app/system-settings` | Personal preferences |
+**Features:**
+- Personal dashboard with activity overview
+- Account management
+- Project/file management
+- Subscription management
+- User-friendly, simplified interface
 
-### `/admin/*` — admin only (RBAC: `admin` role required)
+### 2. Admin Interface (`/admin/*`)
+Designed for administrators to manage the platform:
+- **`/admin`** - Admin dashboard with system-wide metrics
+- **`/admin/users`** - User management and administration
+- **`/admin/analytics`** - Platform analytics and reports
+- **`/admin/settings`** - System configuration
 
-| Route | Purpose |
-|---|---|
-| `/admin` | Admin dashboard |
-| `/admin/users` | User and membership management |
+**Features:**
+- System-wide statistics and monitoring
+- User management (CRUD operations)
+- Security and system alerts
+- Advanced analytics
+- Platform configuration
 
-## Env vars
+## Pages
 
-See `.env.example` for the full list. Key ones:
+### Public Pages
+- `/` - Landing page
+- `/login` - Login page
 
-| Var | Purpose | Default |
-|---|---|---|
-| `DATABASE_URL` | Prisma connection string | `file:./dev.db` |
-| `HERMES_AGENT_BASE_URL` | Hermes agent endpoint | `http://127.0.0.1:8642/v1` |
-| `HERMES_AGENT_API_KEY` | Bearer for Hermes | `change-me-local-dev` |
-| `HERMES_AGENT_MODEL` | Model name passed to Hermes | `hermes-agent` |
-| `OPENAI_API_KEY` | Direct OpenAI fallback (optional) | unset → mock LLM |
-| `GOOGLE_CLIENT_ID` / `SECRET` | Google OAuth credentials | unset → integration disabled |
-| `GOOGLE_REDIRECT_URI` | Google OAuth callback | `http://localhost:3000/api/integrations/google/callback` |
+### Customer Interface
+- `/app` - Customer dashboard
+- `/app/profile` - User profile
+- `/app/billing` - Billing & subscription
+- `/app/settings` - User settings
 
-Without `OPENAI_API_KEY` and without a reachable Hermes service, the app falls back to `MockLLMProvider` — fully functional, deterministic, no external calls.
+### Admin Interface
+- `/admin` - Admin dashboard
+- `/admin/users` - User management
+- `/admin/analytics` - Analytics
+- `/admin/settings` - Admin settings
 
-## Tech
+## Tech Stack
 
-- **Next.js 14** App Router with React Server Components
-- **TypeScript 5.5** strict mode
-- **Prisma 7** with SQLite (dev) — switchable to Postgres for prod (one-line schema change)
-- **Tailwind CSS 3** with dark mode
-- **Lucide React** for icons
-- **Jest 30** + **ts-jest** + **@testing-library/react** for tests
-- **better-sqlite3** as the Prisma SQLite driver
-- **googleapis** for Google Calendar OAuth + API
+- **Framework**: Next.js 14
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **Icons**: Lucide React (to be installed)
 
-## Related docs
+## Next Steps
 
-| | |
-|---|---|
-| [`../ARCHITECTURE.md`](../ARCHITECTURE.md) | System diagram, request flow, RBAC matrix, data model |
-| [`../DEPLOYMENT.md`](../DEPLOYMENT.md) | Local → AWS production path |
-| [`../TESTING.md`](../TESTING.md) | Test pyramid, current coverage, threat-per-test |
-| [`../OPERATIONS.md`](../OPERATIONS.md) | SLOs, alerts, runbooks |
-| [`./SECURITY_HEADERS.md`](./SECURITY_HEADERS.md) | HTTP security header configuration (from `next.config.js`) |
-| [`./lib/mcp/README.md`](./lib/mcp/README.md) | MCP framework internals |
+- Add authentication logic
+- Connect to backend API
+- Add more dashboard features
+- Implement user management
+- Add payment integration

@@ -1,26 +1,5 @@
 # KindCaddy MCP Workflow Test Plan
 
-> **Status — historical reference, not the live test contract.**
->
-> This document was written against the **pre-migration 4-role RBAC system**
-> (`viewer` / `editor` / `admin` / `owner`). The role system has since been
-> simplified to two roles (`admin` / `employee`) — see migration
-> `prisma/migrations/20260506000000_simplify_roles_and_user_mcp_access/`.
->
-> The test scenarios below remain valuable as a record of the **intended
-> coverage surface** for the MCP workflow (domain activation, tool dispatch,
-> Hermes contract, UI behavior). When reading scenarios that mention
-> `viewer` / `editor` / `owner`:
->
-> - Map `owner` → `admin`.
-> - Map `viewer` and `editor` → `employee`.
-> - Capability boundaries (`read` / `write` / `admin`) collapse accordingly:
->   `employee` calls `read`-only tools by default; `admin` calls everything.
->
-> The **authoritative live test contract** is `TESTING.md` at the repo root
-> plus the suites under `frontend/__tests__/`. If a scenario here disagrees
-> with the current code, the current code wins.
-
 ## Purpose
 
 Validate that the KindCaddy assistant workflow correctly routes domain-specific user

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Sparkles, Briefcase, Users, Home } from "lucide-react";
+import { Sparkles, Briefcase, Users, Home, Plug } from "lucide-react";
 import UserProfileDropdown from "@/components/UserProfileDropdown";
 
 interface UserContext {
@@ -42,6 +42,13 @@ export default function RoleLandingPage() {
               </span>
             </div>
             <div className="flex items-center space-x-4">
+              <Link
+                href="/app/integrations"
+                className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                title="Integrations"
+              >
+                <Plug className="h-5 w-5" />
+              </Link>
               <Link
                 href="/"
                 className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors"

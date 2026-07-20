@@ -1,47 +1,32 @@
 /**
- * QuickBooks Online integration helper.
+ * QuickBooks Online (QBO) integration — OAuth 2.0 + encrypted token storage.
  *
- * Mirrors the shape of `lib/integrations/google-calendar.ts` deliberately:
+ * Mirrors the Google Calendar pattern (lib/integrations/google-calendar.ts):
+ *  - Tokens (access + refresh + realmId) are AES-256-GCM encrypted at rest
+ *    in Resource.data via lib/crypto.ts.
+ *  - OAuth `state` is HMAC-signed and bound to the originating user + tenant.
+ *  - No Intuit SDK dependency — raw fetch to the Intuit OAuth + Accounting API.
  *
- *   - One `Resource` row per (tenant, department, user) holds the OAuth
- *     connection (refresh_token, access_token, realmId, expiry). Stored as
- *     envelope-encrypted ciphertext via `lib/crypto.ts`.
- *   - Three exported functions cover the entire lifecycle the rest of the
- *     codebase needs: start an OAuth handshake (`createQuickBooksOAuthClient`),
- *     persist a finished handshake (`saveQuickBooksConnection`), and get a
- *     usable, freshly-refreshed access token (`getQuickBooksAccessToken`).
- *   - All MCP-server-side concerns (rate limit, RBAC, audit) live elsewhere;
- *     this file only owns the integration's network surface and token
- *     storage.
+ * Required env vars:
+ *   QBO_CLIENT_ID     — Intuit app client ID
+ *   QBO_CLIENT_SECRET — Intuit app client secret
+ *   QBO_REDIRECT_URI  — OAuth redirect URI (must match Intuit app config)
+ *   QBO_ENV           — 'sandbox' or 'production' (default: sandbox)
  *
- * The Intuit OAuth spec:
- *   - Authorize:    https://appcenter.intuit.com/connect/oauth2
- *   - Token URL:    https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer
- *   - API base:     https://sandbox-quickbooks.api.intuit.com/v3/company/{realmId}/...
- *                   (production = quickbooks.api.intuit.com)
- *
- * Refresh-token lifetime: 100 days (sliding). The access_token is 1 hour.
- * We refresh proactively whenever <5 min remain. If a refresh token expires
- * (e.g. user revoked), the next call throws a typed error so the UI can
- * surface "reconnect QuickBooks" instead of a 500.
+ * Intuit API docs:
+ *   https://developer.intuit.com/app/developer/qbo/docs/develop
  */
 
 import { db } from '@/lib/db';
-import { decryptResourceData, encrypt } from '@/lib/crypto';
+import { decryptString, encryptString } from '@/lib/crypto';
 
-const RESOURCE_NAME = 'quickbooks_connection';
+const QBO_RESOURCE_NAME = 'quickbooks_connection';
 
-const AUTHORIZE_URL = 'https://appcenter.intuit.com/connect/oauth2';
-const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
-const REVOKE_URL =
-  'https://developer.api.intuit.com/v2/oauth2/tokens/revoke';
+/** Short-lived nonce cookie for the OAuth `state` round-trip. */
+export const QBO_OAUTH_STATE_COOKIE = 'qbo_oauth_state';
 
-export const QUICKBOOKS_SCOPES = [
-  'com.intuit.quickbooks.accounting',
-  'openid',
-  'profile',
-  'email',
-];
+/** OAuth scopes for QBO accounting. */
+export const QBO_SCOPES = ['com.intuit.quickbooks.accounting'];
 
 export interface QuickBooksScope {
   tenantId: string;
@@ -50,153 +35,170 @@ export interface QuickBooksScope {
 }
 
 interface StoredQuickBooksConnection {
+  accessToken: string;
   refreshToken: string;
-  accessToken?: string;
-  /** ms-since-epoch */
-  accessTokenExpiresAt?: number;
-  /** Intuit company id (a.k.a. realmId) — required on every API call. */
   realmId: string;
-  /** Which Intuit environment ('sandbox' | 'production') minted these tokens. */
-  environment: 'sandbox' | 'production';
+  /** ISO timestamp of when the access token was obtained. */
+  tokenObtainedAt: string;
+  /** Seconds until the access token expires. */
+  expiresIn: number;
+  /** When the refresh token itself expires (seconds from tokenObtainedAt). */
+  refreshExpiresIn: number;
   connectedAt: string;
 }
 
-export class QuickBooksNotConnectedError extends Error {
-  constructor() {
-    super(
-      'QuickBooks is not connected for this user. Visit /api/integrations/quickbooks/start first.',
-    );
-    this.name = 'QuickBooksNotConnectedError';
-  }
-}
-
-export class QuickBooksAuthExpiredError extends Error {
-  constructor() {
-    super(
-      'QuickBooks refresh token is no longer accepted by Intuit. The user must reconnect.',
-    );
-    this.name = 'QuickBooksAuthExpiredError';
-  }
-}
+// ─── env helpers ──────────────────────────────────────────────
 
 function requiredEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) {
+  const value = process.env[name];
+  if (!value) {
     throw new Error(`${name} is required for QuickBooks integration`);
   }
-  return v;
+  return value;
 }
 
-function getEnvironment(): 'sandbox' | 'production' {
-  const v = (process.env.QUICKBOOKS_ENVIRONMENT ?? 'sandbox').toLowerCase();
-  return v === 'production' ? 'production' : 'sandbox';
+function qboEnv(): 'sandbox' | 'production' {
+  return process.env.QBO_ENV === 'production' ? 'production' : 'sandbox';
 }
 
-function getApiBase(env: 'sandbox' | 'production'): string {
-  return env === 'production'
-    ? 'https://quickbooks.api.intuit.com'
-    : 'https://sandbox-quickbooks.api.intuit.com';
+/** Intuit OAuth 2.0 authorize URL. */
+export function qboAuthorizeUrl(): string {
+  return 'https://appcenter.intuit.com/connect/oauth2';
 }
 
-function basicAuthHeader(): string {
-  const clientId = requiredEnv('QUICKBOOKS_CLIENT_ID');
-  const clientSecret = requiredEnv('QUICKBOOKS_CLIENT_SECRET');
-  return (
-    'Basic ' +
-    Buffer.from(`${clientId}:${clientSecret}`, 'utf8').toString('base64')
-  );
+/** Intuit OAuth 2.0 token endpoint. */
+export function qboTokenUrl(): string {
+  return 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
 }
 
-// -------------------- OAuth start --------------------
-
-export interface QuickBooksAuthUrl {
-  url: string;
-  state: string;
+/** QBO Accounting API base URL (environment-aware). */
+export function qboApiBaseUrl(): string {
+  return qboEnv() === 'production'
+    ? 'https://quickbooks.api.intuit.com/v3/company'
+    : 'https://sandbox-quickbooks.api.intuit.com/v3/company';
 }
+
+// ─── OAuth flow ───────────────────────────────────────────────
 
 /**
- * Build the Intuit consent URL. `state` is generated by the caller (the route
- * handler) so it can verify the callback came from a flow we started — we sign
- * it with the user's id to mitigate CSRF-on-OAuth and to bind a callback to
- * the originating session.
+ * Build the Intuit OAuth 2.0 authorize redirect URL.
+ * Caller is responsible for setting the `state` cookie.
  */
 export function buildAuthorizeUrl(state: string): string {
-  const clientId = requiredEnv('QUICKBOOKS_CLIENT_ID');
-  const redirectUri = requiredEnv('QUICKBOOKS_REDIRECT_URI');
+  const clientId = requiredEnv('QBO_CLIENT_ID');
+  const redirectUri = requiredEnv('QBO_REDIRECT_URI');
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
-    scope: QUICKBOOKS_SCOPES.join(' '),
+    scope: QBO_SCOPES.join(' '),
     state,
   });
-  return `${AUTHORIZE_URL}?${params.toString()}`;
+  return `${qboAuthorizeUrl()}?${params.toString()}`;
 }
 
-// -------------------- OAuth callback --------------------
-
-interface IntuitTokenResponse {
+interface QboTokenResponse {
   access_token: string;
   refresh_token: string;
-  expires_in: number; // seconds, typically 3600
-  x_refresh_token_expires_in: number; // seconds, ~100 days
-  token_type: string; // 'bearer'
+  expires_in: number;
+  x_refresh_token_expires_in: number;
+  token_type: string;
 }
 
-async function exchangeCodeForTokens(
+/** Exchange an authorization code for access + refresh tokens. */
+export async function exchangeCodeForTokens(
   code: string,
-): Promise<IntuitTokenResponse> {
-  const redirectUri = requiredEnv('QUICKBOOKS_REDIRECT_URI');
-  const res = await fetch(TOKEN_URL, {
+): Promise<QboTokenResponse> {
+  const clientId = requiredEnv('QBO_CLIENT_ID');
+  const clientSecret = requiredEnv('QBO_CLIENT_SECRET');
+  const redirectUri = requiredEnv('QBO_REDIRECT_URI');
+
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri,
+  });
+
+  const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  const res = await fetch(qboTokenUrl(), {
     method: 'POST',
     headers: {
-      Authorization: basicAuthHeader(),
       'Content-Type': 'application/x-www-form-urlencoded',
       Accept: 'application/json',
+      Authorization: `Basic ${authHeader}`,
     },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: redirectUri,
-    }).toString(),
+    body: body.toString(),
   });
+
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(
-      `Intuit token exchange failed (${res.status}): ${text.slice(0, 500)}`,
-    );
+    throw new Error(`QBO token exchange failed (${res.status}): ${text}`);
   }
-  return (await res.json()) as IntuitTokenResponse;
+
+  return res.json() as Promise<QboTokenResponse>;
 }
 
-async function refreshAccessToken(
+/** Refresh an expired access token using the stored refresh token. */
+export async function refreshAccessToken(
   refreshToken: string,
-): Promise<IntuitTokenResponse> {
-  const res = await fetch(TOKEN_URL, {
+): Promise<QboTokenResponse> {
+  const clientId = requiredEnv('QBO_CLIENT_ID');
+  const clientSecret = requiredEnv('QBO_CLIENT_SECRET');
+
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+  });
+
+  const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  const res = await fetch(qboTokenUrl(), {
     method: 'POST',
     headers: {
-      Authorization: basicAuthHeader(),
       'Content-Type': 'application/x-www-form-urlencoded',
       Accept: 'application/json',
+      Authorization: `Basic ${authHeader}`,
     },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-    }).toString(),
+    body: body.toString(),
   });
-  if (res.status === 400 || res.status === 401) {
-    throw new QuickBooksAuthExpiredError();
-  }
+
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(
-      `Intuit token refresh failed (${res.status}): ${text.slice(0, 500)}`,
-    );
+    throw new Error(`QBO token refresh failed (${res.status}): ${text}`);
   }
-  return (await res.json()) as IntuitTokenResponse;
+
+  return res.json() as Promise<QboTokenResponse>;
 }
 
-// -------------------- Resource I/O --------------------
+// ─── token storage (encrypted) ───────────────────────────────
+
+function parseConnectionData(
+  raw: string,
+): StoredQuickBooksConnection | null {
+  try {
+    const parsed = JSON.parse(
+      decryptString(raw),
+    ) as Partial<StoredQuickBooksConnection>;
+    if (
+      !parsed ||
+      typeof parsed.accessToken !== 'string' ||
+      typeof parsed.refreshToken !== 'string' ||
+      typeof parsed.realmId !== 'string'
+    ) {
+      return null;
+    }
+    return {
+      accessToken: parsed.accessToken,
+      refreshToken: parsed.refreshToken,
+      realmId: parsed.realmId,
+      tokenObtainedAt: parsed.tokenObtainedAt ?? new Date().toISOString(),
+      expiresIn: parsed.expiresIn ?? 3600,
+      refreshExpiresIn: parsed.refreshExpiresIn ?? 0,
+      connectedAt: parsed.connectedAt ?? new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
 
 async function findConnection(scope: QuickBooksScope) {
   return db.resource.findFirst({
@@ -204,216 +206,151 @@ async function findConnection(scope: QuickBooksScope) {
       tenantId: scope.tenantId,
       departmentId: scope.departmentId,
       createdBy: scope.userId,
-      name: RESOURCE_NAME,
+      name: QBO_RESOURCE_NAME,
     },
   });
 }
 
-function parseConnectionData(raw: string): StoredQuickBooksConnection | null {
-  try {
-    const parsed = JSON.parse(raw) as Partial<StoredQuickBooksConnection>;
-    if (
-      !parsed ||
-      typeof parsed.refreshToken !== 'string' ||
-      typeof parsed.realmId !== 'string'
-    ) {
-      return null;
-    }
-    const environment: 'sandbox' | 'production' =
-      parsed.environment === 'production' ? 'production' : 'sandbox';
-    return {
-      refreshToken: parsed.refreshToken,
-      accessToken:
-        typeof parsed.accessToken === 'string' ? parsed.accessToken : undefined,
-      accessTokenExpiresAt:
-        typeof parsed.accessTokenExpiresAt === 'number'
-          ? parsed.accessTokenExpiresAt
-          : undefined,
-      realmId: parsed.realmId,
-      environment,
-      connectedAt:
-        typeof parsed.connectedAt === 'string'
-          ? parsed.connectedAt
-          : new Date().toISOString(),
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function readConnection(
+export async function getStoredQuickBooksConnection(
   scope: QuickBooksScope,
-): Promise<{ id: string; conn: StoredQuickBooksConnection } | null> {
+): Promise<StoredQuickBooksConnection | null> {
   const row = await findConnection(scope);
   if (!row) return null;
-  const plaintext = await decryptResourceData(row.data);
-  const conn = parseConnectionData(plaintext);
-  if (!conn) return null;
-  return { id: row.id, conn };
+  return parseConnectionData(row.data);
 }
 
-async function writeConnection(
+export async function saveQuickBooksConnection(
   scope: QuickBooksScope,
-  conn: StoredQuickBooksConnection,
+  input: {
+    accessToken: string;
+    refreshToken: string;
+    realmId: string;
+    expiresIn: number;
+    refreshExpiresIn: number;
+  },
 ): Promise<void> {
-  const encrypted = await encrypt(JSON.stringify(conn));
   const existing = await findConnection(scope);
+  const data: StoredQuickBooksConnection = {
+    accessToken: input.accessToken,
+    refreshToken: input.refreshToken,
+    realmId: input.realmId,
+    tokenObtainedAt: new Date().toISOString(),
+    expiresIn: input.expiresIn,
+    refreshExpiresIn: input.refreshExpiresIn,
+    connectedAt: new Date().toISOString(),
+  };
+
+  const payload = encryptString(JSON.stringify(data));
+
   if (existing) {
     await db.resource.update({
       where: { id: existing.id },
-      data: { data: encrypted },
+      data: { data: payload },
     });
     return;
   }
+
   await db.resource.create({
     data: {
       tenantId: scope.tenantId,
       departmentId: scope.departmentId,
       createdBy: scope.userId,
-      name: RESOURCE_NAME,
-      data: encrypted,
+      name: QBO_RESOURCE_NAME,
+      data: payload,
     },
   });
 }
 
-// -------------------- Public lifecycle API --------------------
-
-export async function saveQuickBooksConnection(
-  scope: QuickBooksScope,
-  input: { code: string; realmId: string },
-): Promise<void> {
-  const tokens = await exchangeCodeForTokens(input.code);
-  const environment = getEnvironment();
-  const conn: StoredQuickBooksConnection = {
-    refreshToken: tokens.refresh_token,
-    accessToken: tokens.access_token,
-    accessTokenExpiresAt:
-      Date.now() + Math.max(0, (tokens.expires_in - 30) * 1000),
-    realmId: input.realmId,
-    environment,
-    connectedAt: new Date().toISOString(),
-  };
-  await writeConnection(scope, conn);
-}
-
-/**
- * Returns a current access token, refreshing it if it's within 5 minutes of
- * expiry. Throws `QuickBooksNotConnectedError` if there is no connection and
- * `QuickBooksAuthExpiredError` if Intuit rejects the refresh token (user must
- * reconnect).
- */
-export async function getQuickBooksAccessToken(
-  scope: QuickBooksScope,
-): Promise<{
-  accessToken: string;
-  realmId: string;
-  apiBase: string;
-}> {
-  const found = await readConnection(scope);
-  if (!found) throw new QuickBooksNotConnectedError();
-  const { conn } = found;
-
-  const fiveMinutes = 5 * 60 * 1000;
-  const expiresAt = conn.accessTokenExpiresAt ?? 0;
-  const needsRefresh = !conn.accessToken || Date.now() > expiresAt - fiveMinutes;
-
-  let accessToken = conn.accessToken;
-  if (needsRefresh) {
-    const refreshed = await refreshAccessToken(conn.refreshToken);
-    accessToken = refreshed.access_token;
-    const next: StoredQuickBooksConnection = {
-      ...conn,
-      // Intuit rotates refresh tokens occasionally; persist the new one.
-      refreshToken: refreshed.refresh_token ?? conn.refreshToken,
-      accessToken,
-      accessTokenExpiresAt:
-        Date.now() + Math.max(0, (refreshed.expires_in - 30) * 1000),
-    };
-    await writeConnection(scope, next);
-  }
-
-  if (!accessToken) throw new QuickBooksNotConnectedError();
-  return {
-    accessToken,
-    realmId: conn.realmId,
-    apiBase: getApiBase(conn.environment),
-  };
-}
-
-export async function isQuickBooksConnected(
-  scope: QuickBooksScope,
-): Promise<boolean> {
-  const found = await readConnection(scope);
-  return !!found;
-}
-
-export async function revokeQuickBooksConnection(
+export async function deleteQuickBooksConnection(
   scope: QuickBooksScope,
 ): Promise<void> {
-  const found = await readConnection(scope);
-  if (!found) return;
-  try {
-    await fetch(REVOKE_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: basicAuthHeader(),
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({ token: found.conn.refreshToken }),
-    });
-  } catch {
-    // Best-effort: if Intuit is unreachable we still drop the local row so the
-    // user isn't stuck with an unconnectable account.
+  const existing = await findConnection(scope);
+  if (existing) {
+    await db.resource.delete({ where: { id: existing.id } });
   }
-  await db.resource.delete({ where: { id: found.id } });
 }
 
-// -------------------- Thin REST helper --------------------
+// ─── API client ───────────────────────────────────────────────
 
 /**
- * Low-level call into the QuickBooks Online REST API. Handles auth + retry on
- * 401 (token rotated under us). Body is JSON-serialized; response is parsed
- * as JSON.
+ * Get a valid access token, refreshing if expired.
+ * Returns the access token + realmId for making QBO API calls.
  */
-export async function quickBooksFetch<T>(
+export async function getValidAccessToken(
   scope: QuickBooksScope,
-  init: {
-    path: string;
-    method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
-    query?: Record<string, string | number | undefined>;
-    body?: unknown;
-  },
-): Promise<T> {
-  const { accessToken, realmId, apiBase } = await getQuickBooksAccessToken(scope);
-  const search = new URLSearchParams({ minorversion: '70' });
-  if (init.query) {
-    for (const [k, v] of Object.entries(init.query)) {
-      if (v !== undefined) search.set(k, String(v));
-    }
-  }
-  const url = `${apiBase}/v3/company/${encodeURIComponent(realmId)}${init.path}?${search.toString()}`;
-
-  const res = await fetch(url, {
-    method: init.method ?? 'GET',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
-  });
-
-  if (res.status === 401) {
-    // Token may have been revoked or rotated. Surface a typed error so the
-    // caller can mark the connection invalid.
-    throw new QuickBooksAuthExpiredError();
-  }
-  if (!res.ok) {
-    const text = await res.text();
+): Promise<{ accessToken: string; realmId: string }> {
+  const stored = await getStoredQuickBooksConnection(scope);
+  if (!stored) {
     throw new Error(
-      `QuickBooks API ${init.path} failed (${res.status}): ${text.slice(0, 500)}`,
+      'QuickBooks is not connected for this user. Visit /api/integrations/quickbooks/start first.',
     );
   }
-  return (await res.json()) as T;
+
+  const obtainedAt = new Date(stored.tokenObtainedAt).getTime();
+  const now = Date.now();
+  const elapsedSec = (now - obtainedAt) / 1000;
+
+  // Refresh if the access token is expired or will expire within 60 seconds.
+  if (elapsedSec >= stored.expiresIn - 60) {
+    const refreshed = await refreshAccessToken(stored.refreshToken);
+    await saveQuickBooksConnection(scope, {
+      accessToken: refreshed.access_token,
+      refreshToken: refreshed.refresh_token,
+      realmId: stored.realmId,
+      expiresIn: refreshed.expires_in,
+      refreshExpiresIn: refreshed.x_refresh_token_expires_in,
+    });
+    return { accessToken: refreshed.access_token, realmId: stored.realmId };
+  }
+
+  return { accessToken: stored.accessToken, realmId: stored.realmId };
+}
+
+/**
+ * Make a QBO Accounting API call with automatic token refresh.
+ *
+ * @param scope  - tenant/department/user scope
+ * @param method - HTTP method
+ * @param path   - API path after /v3/company/{realmId}/ (e.g. 'query')
+ * @param body   - request body (for POST/PUT)
+ * @param query  - URLSearchParams for query requests
+ */
+export async function qboApiCall(
+  scope: QuickBooksScope,
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  options?: {
+    body?: string;
+    query?: URLSearchParams;
+    contentType?: string;
+  },
+): Promise<Record<string, unknown>> {
+  const { accessToken, realmId } = await getValidAccessToken(scope);
+  const base = `${qboApiBaseUrl()}/${realmId}/${path}`;
+
+  let url = base;
+  if (options?.query) {
+    url = `${base}?${options.query.toString()}`;
+  }
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${accessToken}`,
+    Accept: 'application/json',
+  };
+  if (options?.body) {
+    headers['Content-Type'] = options.contentType ?? 'application/json';
+  }
+
+  const res = await fetch(url, {
+    method,
+    headers,
+    body: options?.body,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`QBO API call failed (${res.status} ${method} ${path}): ${text}`);
+  }
+
+  return res.json() as Promise<Record<string, unknown>>;
 }
