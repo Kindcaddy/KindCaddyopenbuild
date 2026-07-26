@@ -1,16 +1,40 @@
 /**
  * OpenAI-compatible LLM adapter. Used when OPENAI_API_KEY is configured.
  * Works with any OpenAI /v1/chat/completions-compatible endpoint including
- * local llama.cpp servers (set OPENAI_BASE_URL to override).
+ * OpenRouter (set OPENAI_BASE_URL=https://openrouter.ai/api/v1) and local
+ * llama.cpp / Ollama servers.
+ *
+ * Transport failures are surfaced as typed errors so callers can distinguish a
+ * provider that is unreachable (fast 503) from one that accepted the connection
+ * but failed mid-turn. The chat route maps these to `assistant_unavailable`.
  */
 
 import type {
   ChatTurn,
+  LLMChatInput,
   LLMProvider,
   LLMResponse,
   LLMToolCall,
-  LLMToolSpec,
 } from './types';
+import { safeName, unSafeName } from '../agents/tool-projection';
+
+/** Provider could not be reached at all (connection refused, DNS, TLS). */
+export class ProviderUnreachableError extends Error {
+  constructor(message: string, readonly cause?: unknown) {
+    super(message);
+    this.name = 'ProviderUnreachableError';
+  }
+}
+
+/** Provider was reachable but a round failed (HTTP error or timeout). */
+export class ProviderMidturnError extends Error {
+  constructor(message: string, readonly cause?: unknown) {
+    super(message);
+    this.name = 'ProviderMidturnError';
+  }
+}
+
+const DEFAULT_TIMEOUT_MS = 60000;
 
 export class OpenAILLMProvider implements LLMProvider {
   name: string;
@@ -20,18 +44,22 @@ export class OpenAILLMProvider implements LLMProvider {
 
   constructor(opts: { apiKey: string; baseUrl?: string; model?: string }) {
     this.apiKey = opts.apiKey;
-    this.baseUrl = opts.baseUrl ?? 'https://api.openai.com/v1';
+    this.baseUrl = (opts.baseUrl ?? 'https://api.openai.com/v1').replace(/\/+$/, '');
     this.model = opts.model ?? 'gpt-4o-mini';
     this.name = `openai:${this.model}`;
   }
 
-  async chat(input: {
-    system: string;
-    messages: ChatTurn[];
-    tools: LLMToolSpec[];
-  }): Promise<LLMResponse> {
+  async chat(input: LLMChatInput): Promise<LLMResponse> {
+    const model = input.model ?? this.model;
+    const apiKey = input.apiKey ?? this.apiKey;
+    const baseUrl = (input.baseUrl ?? this.baseUrl).replace(/\/+$/, '');
+    const timeoutMs =
+      Number.isFinite(input.timeoutMs) && (input.timeoutMs ?? 0) > 0
+        ? (input.timeoutMs as number)
+        : DEFAULT_TIMEOUT_MS;
+
     const body = {
-      model: this.model,
+      model,
       messages: [
         { role: 'system', content: input.system },
         ...input.messages.map(toOpenAIMessage),
@@ -44,19 +72,42 @@ export class OpenAILLMProvider implements LLMProvider {
           parameters: t.parameters,
         },
       })),
-      tool_choice: 'auto',
+      tool_choice: input.tools.length > 0 ? 'auto' : undefined,
     };
-    const res = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      throw new Error(`OpenAI error: ${res.status} ${await res.text()}`);
+
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      authorization: `Bearer ${apiKey}`,
+    };
+    if (input.requestId) headers['x-request-id'] = input.requestId;
+
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'TimeoutError') {
+        throw new ProviderMidturnError(
+          `LLM provider timed out after ${timeoutMs}ms`,
+          err,
+        );
+      }
+      throw new ProviderUnreachableError(
+        `LLM provider is unreachable at ${baseUrl}`,
+        err,
+      );
     }
+
+    if (!res.ok) {
+      throw new ProviderMidturnError(
+        `LLM provider error: ${res.status} ${await res.text()}`,
+      );
+    }
+
     const data = (await res.json()) as {
       choices: Array<{
         message: {
@@ -78,7 +129,7 @@ export class OpenAILLMProvider implements LLMProvider {
     return {
       content: choice?.content ?? '',
       toolCalls,
-      model: this.model,
+      model,
       usage: {
         promptTokens: data.usage?.prompt_tokens,
         completionTokens: data.usage?.completion_tokens,
@@ -108,13 +159,6 @@ function toOpenAIMessage(m: ChatTurn): Record<string, unknown> {
   return { role: m.role, content: m.content };
 }
 
-// OpenAI function names must match /^[a-zA-Z0-9_-]+$/, so "a.b" -> "a__b".
-function safeName(name: string): string {
-  return name.replace(/\./g, '__');
-}
-function unSafeName(name: string): string {
-  return name.replace(/__/g, '.');
-}
 function safeParse(s: string): Record<string, unknown> {
   try {
     const v = JSON.parse(s);

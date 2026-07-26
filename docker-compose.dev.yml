@@ -1,0 +1,32 @@
+# Local development only. Production Postgres lives on managed AWS RDS and is
+# never started from Compose (see docker-compose.yml).
+#
+# Bring up a throwaway local Postgres for `next dev`:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up db
+#
+# Then point frontend/.env at it:
+#   DATABASE_URL="postgresql://kindcaddy:devpassword@localhost:5432/kindcaddy"
+#
+# Data lives in the named volume `pgdata_dev`; drop it with:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml down -v
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kindcaddy
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
+      POSTGRES_DB: kindcaddy
+    ports:
+      # Published for host-side `next dev`; local only, never in production.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kindcaddy"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata_dev:

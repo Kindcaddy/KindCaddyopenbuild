@@ -41,11 +41,23 @@ export interface LLMResponse {
   model: string;
 }
 
+export interface LLMChatInput {
+  system: string;
+  messages: ChatTurn[];
+  tools: LLMToolSpec[];
+  /** Per-request model override (e.g. a cheaper model for memory extraction). */
+  model?: string;
+  /** Per-request timeout; falls back to the provider default when omitted. */
+  timeoutMs?: number;
+  /** Per-request key override — enables session-held BYOK without persistence. */
+  apiKey?: string;
+  /** Per-request base URL override (pairs with apiKey for BYOK). */
+  baseUrl?: string;
+  /** Correlation id; forwarded as x-request-id for cross-log tracing. */
+  requestId?: string;
+}
+
 export interface LLMProvider {
   name: string;
-  chat(input: {
-    system: string;
-    messages: ChatTurn[];
-    tools: LLMToolSpec[];
-  }): Promise<LLMResponse>;
+  chat(input: LLMChatInput): Promise<LLMResponse>;
 }

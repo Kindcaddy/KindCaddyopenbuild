@@ -4,8 +4,7 @@
  * Why this test exists
  * --------------------
  * The architecture document states (and the policy gate depends on) the
- * following contract for what crosses the wire to the Hermes / OpenAI-compatible
- * LLM:
+ * following contract for what crosses the wire to the OpenAI-compatible LLM:
  *
  *   "Specifically NOT exposed to the LLM: dataScope, domain, capability.
  *    The single source of truth for who can call what stays in
@@ -17,19 +16,11 @@
  * traces, and lets a curious end user exfiltrate scope topology by asking
  * the model what tools it sees.
  *
- * This file pins the invariant so that regression cannot ship.
- *
- * Why not test through `step()` / outbound fetch?
- * -----------------------------------------------
- * `step()` would require mocking `global.fetch`, building a full
- * `AgentStepInput` (RequestContext, history, trace), wiring in the MCP client,
- * and asserting on a JSON.stringify'd request body. That is a worthwhile
- * integration test, but for the *invariant itself* a direct unit test on the
- * projection is the lowest-cost, highest-signal coverage. We pay <50 LOC and
- * lock the contract at its source.
+ * This file pins the invariant at its source (`lib/agents/tool-projection.ts`,
+ * shared by the agent and the provider client) so regression cannot ship.
  */
 
-import { toOpenAITool, safeName } from '@/lib/agents/hermes';
+import { toOpenAITool, safeName } from '@/lib/agents/tool-projection';
 import type { RegisteredTool } from '@/lib/mcp/registry';
 
 function makeMaximalRegisteredTool(): RegisteredTool {

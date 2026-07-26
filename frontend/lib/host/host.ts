@@ -5,9 +5,10 @@
  * Flow (mirrors the architecture diagram):
  *   1. User prompt arrives with a RequestContext.
  *   2. Host ensures a ChatSession, persists the user message.
- *   3. Host routes requests to Hermes.
- *   4. Hermes decides whether to call KindCaddy MCP tools.
- *   5. Host persists the assistant message + trace + updates memory.
+ *   3. Host routes the request to the KindCaddy agent (direct provider call).
+ *   4. The agent decides whether to call KindCaddy MCP tools.
+ *   5. Host persists the assistant message + trace, then (smart mode) distills
+ *      per-user memory from the turn.
  */
 
 import { db } from '../db';
@@ -21,16 +22,26 @@ import {
   isChatDomain,
   type ChatDomain,
 } from '../mcp/domain-catalog';
-import { ExternalHermesAgent } from '../agents/hermes';
+import { KindCaddyAgent } from '../agents/agent';
 import type { AgentProgressEvent, AgentTraceEntry } from '../agents/base';
+import {
+  extractAndSaveSmartMemory,
+  getMemoryMode,
+  listMemoryForInjection,
+} from '../memory/store';
 import { SessionManager } from './session';
 
-export type AgentId = 'hermes';
+export type AgentId = 'kindcaddy';
+
+/** Human-friendly label for the model that answered, recorded on messages. */
+function llmLabel(): string {
+  return process.env.OPENAI_MODEL ?? 'kindcaddy';
+}
 
 export interface ChatRequest {
   sessionId?: string;
   message: string;
-  /** Reserved for compatibility; Hermes is always used. */
+  /** Reserved for compatibility; the KindCaddy agent is always used. */
   agent?: AgentId;
   /** Limit exposed tools to a domain-specific MCP slice. */
   domain?: ChatDomain;
@@ -88,8 +99,8 @@ export class Host {
       content: message,
     });
 
-    // 3. Route (Hermes-only runtime).
-    const agentId: AgentId = req.agent ?? 'hermes';
+    // 3. Route (single KindCaddy agent runtime).
+    const agentId: AgentId = req.agent ?? 'kindcaddy';
 
     // 4. Load history and create a placeholder assistant message so tool
     //    invocations have a foreign key to hang off of.
@@ -140,9 +151,16 @@ export class Host {
     const domainDefinition = getDomainDefinition(activeDomain.id);
     const allowedServers = new Set(domainDefinition.servers);
 
-    // 5. Run downloaded Hermes Agent as the primary agent layer.
+    // 4b. Load the caller's memory mode + injected items (scoped to userId +
+    //     tenantId). Injection is independent of capture mode.
+    const [memoryMode, memory] = await Promise.all([
+      getMemoryMode(ctx),
+      listMemoryForInjection(ctx),
+    ]);
+
+    // 5. Run the KindCaddy agent as the primary agent layer.
     const trace: AgentTraceEntry[] = [];
-    const agent = new ExternalHermesAgent(
+    const agent = new KindCaddyAgent(
       mcp.client,
       () => mcp.registry.listTools().filter((tool) => allowedServers.has(tool.server)),
     );
@@ -155,6 +173,7 @@ export class Host {
         assistantMessageId: assistant.id,
         requestId: req.requestId,
         trace,
+        memory,
         onEvent,
       });
       finalContent = result.finalContent;
@@ -181,7 +200,7 @@ export class Host {
       metadata: JSON.stringify({
         agent: agentId,
         trace,
-        llm: 'hermes-agent',
+        llm: llmLabel(),
         domain: activeDomain.id,
       }),
     });
@@ -203,12 +222,23 @@ export class Host {
         resourceId: session.id,
         metadata: JSON.stringify({
           agent: agentId,
-          llm: 'hermes-agent',
+          llm: llmLabel(),
           domain: activeDomain.id,
           toolCalls: trace.filter((t) => t.type === 'tool').length,
         }),
       },
     });
+
+    // 7. Smart mode: distill durable per-user memory from this turn. Fire and
+    //    forget — the reply is already finalized, so extraction adds no latency
+    //    and its failures never affect the response (they self-report).
+    if (memoryMode === 'smart') {
+      void extractAndSaveSmartMemory(ctx, {
+        userMessage: message,
+        assistantReply: finalContent,
+        requestId: req.requestId,
+      });
+    }
 
     return {
       sessionId: session.id,

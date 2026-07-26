@@ -22,7 +22,8 @@ import {
 import UserProfileDropdown from "@/components/UserProfileDropdown";
 import type { ChatDomain } from "@/lib/mcp/domain-catalog";
 
-type AgentId = "hermes";
+type AgentId = "kindcaddy";
+type MemoryMode = "smart" | "explicit" | "off";
 
 interface SessionSummary {
   id: string;
@@ -165,7 +166,8 @@ export default function AssistantPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [servers, setServers] = useState<ServerInfo[]>([]);
   const [domains, setDomains] = useState<DomainInfo[]>([]);
-  const [agent] = useState<AgentId>("hermes");
+  const [agent] = useState<AgentId>("kindcaddy");
+  const [memoryMode, setMemoryMode] = useState<MemoryMode>("smart");
   const [domain, setDomain] = useState<ChatDomain>("finance");
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -211,6 +213,22 @@ export default function AssistantPage() {
     setMessages(j.messages);
   }, []);
 
+  const loadMemoryMode = useCallback(async () => {
+    const r = await fetch("/api/memory/mode", { cache: "no-store" });
+    if (!r.ok) return;
+    const j = (await r.json()) as { mode: MemoryMode };
+    setMemoryMode(j.mode);
+  }, []);
+
+  const changeMemoryMode = useCallback(async (next: MemoryMode) => {
+    setMemoryMode(next);
+    await fetch("/api/memory/mode", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: next }),
+    });
+  }, []);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setRoleView(params.get("role") === "admin" ? "admin" : "employee");
@@ -220,7 +238,8 @@ export default function AssistantPage() {
     loadSessions();
     loadTools();
     loadDomains();
-  }, [loadSessions, loadTools, loadDomains]);
+    loadMemoryMode();
+  }, [loadSessions, loadTools, loadDomains, loadMemoryMode]);
 
   useEffect(() => {
     if (currentId) loadMessages(currentId);
@@ -547,9 +566,24 @@ export default function AssistantPage() {
                 Chat · {selectedDomain?.label ?? "No active domain"} mode
               </span>
             </div>
-            <span className="text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 text-gray-700 dark:text-gray-200">
-              Hermes
-            </span>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                <span className="hidden sm:inline">Memory</span>
+                <select
+                  value={memoryMode}
+                  onChange={(e) => changeMemoryMode(e.target.value as MemoryMode)}
+                  title="How KindCaddy remembers things about you"
+                  className="text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-1 text-gray-700 dark:text-gray-200"
+                >
+                  <option value="smart">Smart</option>
+                  <option value="explicit">Explicit</option>
+                  <option value="off">Off</option>
+                </select>
+              </label>
+              <span className="text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 text-gray-700 dark:text-gray-200">
+                KindCaddy
+              </span>
+            </div>
           </div>
 
           {banner && (

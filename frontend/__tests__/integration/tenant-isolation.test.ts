@@ -69,6 +69,12 @@ import { db } from '@/lib/db';
 import { SessionManager } from '@/lib/host/session';
 import { host } from '@/lib/host/host';
 import type { RequestContext } from '@/lib/context';
+import {
+  deleteMemory,
+  listMemories,
+  listMemoryForInjection,
+  saveMemory,
+} from '@/lib/memory/store';
 
 // ---- Fixtures: two tenants, each with one user, one department, one session ----
 
@@ -121,7 +127,7 @@ async function seedTenant(label: string): Promise<TenantFixture> {
     data: {
       sessionId: session.id,
       role: 'assistant',
-      agent: 'hermes',
+      agent: 'kindcaddy',
       content: `secret-${label}-content`,
     },
   });
@@ -164,6 +170,10 @@ async function seedTenant(label: string): Promise<TenantFixture> {
 
 async function cleanupTenant(t: TenantFixture | undefined) {
   if (!t) return;
+  // UserMemory / UserMemorySetting are scalar-scoped (no FK cascade), so clean
+  // them explicitly before removing the user.
+  await db.userMemory.deleteMany({ where: { userId: t.userId } });
+  await db.userMemorySetting.deleteMany({ where: { userId: t.userId } });
   // Order: audit → invocations are cascaded via message → tenant cascade
   // covers session/message/membership/department; user is independent.
   await db.auditEvent.deleteMany({ where: { tenantId: t.tenantId } });
@@ -268,6 +278,45 @@ describe('Cross-tenant isolation (chat surface)', () => {
       // seedTenant(). The tenant-A intrusion attempt must not have added rows.
       expect(messagesAfter).toHaveLength(1);
       expect(messagesAfter[0].content).toBe('secret-B-content');
+    });
+  });
+
+  describe('Per-user memory isolation', () => {
+    it('never returns one user\'s memory to another — even under concurrent writes', async () => {
+      // Two users in two different tenants write memory at the same time. If any
+      // read/write dropped the (userId, tenantId) filter, one user's private
+      // fact would surface in the other's list or injection slice.
+      await Promise.all([
+        saveMemory(tenantA.context, {
+          content: 'memory-secret-A codenamed atlas',
+          source: 'explicit',
+        }),
+        saveMemory(tenantB.context, {
+          content: 'memory-secret-B codenamed borealis',
+          source: 'explicit',
+        }),
+      ]);
+
+      const [aItems, bItems] = await Promise.all([
+        listMemories(tenantA.context),
+        listMemories(tenantB.context),
+      ]);
+      expect(aItems.some((i) => i.content.includes('memory-secret-A'))).toBe(true);
+      expect(aItems.some((i) => i.content.includes('memory-secret-B'))).toBe(false);
+      expect(bItems.some((i) => i.content.includes('memory-secret-B'))).toBe(true);
+      expect(bItems.some((i) => i.content.includes('memory-secret-A'))).toBe(false);
+
+      // Injection slice is filtered the same way.
+      const aInject = await listMemoryForInjection(tenantA.context);
+      expect(JSON.stringify(aInject)).not.toMatch(/memory-secret-B/);
+
+      // And a cross-tenant delete attempt with a valid id from the other user
+      // is a no-op — deleteMemory scopes by (userId, tenantId).
+      const bId = bItems.find((i) => i.content.includes('memory-secret-B'))!.id;
+      const stolenDelete = await deleteMemory(tenantA.context, bId);
+      expect(stolenDelete).toBe(false);
+      const bStillThere = await listMemories(tenantB.context);
+      expect(bStillThere.some((i) => i.id === bId)).toBe(true);
     });
   });
 });

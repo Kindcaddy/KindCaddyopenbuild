@@ -22,7 +22,7 @@ async function loadRoute() {
   mockHostChat.mockReset().mockResolvedValue({
     sessionId: 's_test',
     assistantMessageId: 'm_test',
-    agent: 'hermes',
+    agent: 'kindcaddy',
     reply: 'ok',
     trace: [],
   });
@@ -128,11 +128,11 @@ describe('/api/mcp/chat guardrails', () => {
     expect(response.headers.get('retry-after')).toBeTruthy();
   });
 
-  it('maps Hermes unreachable errors to a 503 assistant_unavailable', async () => {
+  it('maps provider unreachable errors to a 503 assistant_unavailable', async () => {
     const { POST } = await loadRoute();
-    const { HermesUnreachableError } = await import('@/lib/agents/hermes');
+    const { ProviderUnreachableError } = await import('@/lib/agents/agent');
     mockHostChat.mockImplementationOnce(() => {
-      throw new HermesUnreachableError('down');
+      throw new ProviderUnreachableError('down');
     });
 
     const request = new NextRequest('http://localhost:3000/api/mcp/chat', {

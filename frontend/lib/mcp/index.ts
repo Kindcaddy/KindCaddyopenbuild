@@ -9,6 +9,7 @@ import { MCPClient, MCPServerClient } from './client';
 import { ToolRegistry } from './registry';
 import { GoogleCalendarMCPServer } from './servers/calendar';
 import { FilesMCPServer } from './servers/files';
+import { MemoryMCPServer } from './servers/memory';
 import { NetSuiteMCPServer } from './servers/netsuite';
 import { QuickBooksMCPServer } from './servers/quickbooks';
 import { SquareMCPServer } from './servers/square';
@@ -30,6 +31,7 @@ function build(): {
   const registry = new ToolRegistry();
   registry.register('sqlite', new SQLiteMCPServer());
   registry.register('files', new FilesMCPServer());
+  registry.register('memory', new MemoryMCPServer());
   registry.register('calendar', new GoogleCalendarMCPServer());
   registry.register('netsuite', new NetSuiteMCPServer());
   registry.register('quickbooks', new QuickBooksMCPServer());

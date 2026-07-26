@@ -266,3 +266,45 @@ model ToolInvocation {
   @@index([server])
   @@index([createdAt])
 }
+
+// ---------- Per-user memory layer (Smart / Explicit modes) ----------
+//
+// Scoped per (userId, tenantId) exactly like ChatSession — a user in two
+// tenants keeps two separate memory sets, and every read/write filters on both
+// ids so one user's memory can never surface in another's answer. Rows are
+// user-visible and deletable (see /api/memory) and purged by DELETE /api/me.
+
+model UserMemory {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String
+  content   String
+  // Optional short label for the UI (e.g. "Preference", "Project").
+  label     String?
+  // How the item was captured: 'smart' (auto-extracted) | 'explicit' (saved).
+  source    String   @default("explicit")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  // Soft-hide without deleting; also lets injection skip archived items.
+  archivedAt DateTime?
+  // NOTE: a nullable pgvector `embedding` column is intentionally deferred.
+  // The (userId, tenantId, createdAt) shape leaves room to add semantic
+  // retrieval later without reshaping reads.
+
+  @@index([userId, tenantId])
+  @@index([createdAt])
+}
+
+model UserMemorySetting {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String
+  // Capture mode: 'smart' (auto-extract, default) | 'explicit' | 'off'.
+  mode      String   @default("smart")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, tenantId])
+  @@index([userId])
+  @@index([tenantId])
+}

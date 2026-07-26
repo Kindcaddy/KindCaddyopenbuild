@@ -1,10 +1,15 @@
 /**
- * ExternalHermesAgent: the primary Agents-layer runtime for KindCaddy.
+ * KindCaddyAgent: the primary Agents-layer runtime for KindCaddy.
  *
- * User turns are sent to the downloaded Nous Hermes Gateway. KindCaddy exposes
- * its MCP tools to Hermes using OpenAI-style function specs; when Hermes asks
+ * User turns are sent to an OpenAI-compatible provider (OpenRouter in
+ * production; any /v1/chat/completions endpoint works). KindCaddy exposes its
+ * MCP tools to the model using OpenAI-style function specs; when the model asks
  * for a tool, KindCaddy executes it locally through the MCP client so policy,
  * tenancy, persistence, and audit stay in this app.
+ *
+ * This replaces the retired external Hermes service. The agent loop, tool
+ * projection, JSON fallback, turn budget, and streaming are unchanged — only
+ * the transport (self-hosted Hermes -> direct provider call) moved.
  */
 
 import type { AgentStepInput, AgentStepResult } from './base';
@@ -13,44 +18,31 @@ import type { MCPClient } from '../mcp/client';
 import type { JsonValue } from '../mcp/protocol';
 import type { RegisteredTool } from '../mcp/registry';
 import { newRequestId, reportError } from '../errors';
+import {
+  ProviderMidturnError,
+  ProviderUnreachableError,
+} from '../llm/openai';
+import { safeName, toOpenAITool, unSafeName } from './tool-projection';
+
+export { ProviderMidturnError, ProviderUnreachableError };
 
 /**
- * Hermes could not be reached at all (connection refused, DNS, TLS). The
- * chat route maps this to a fast 503 `assistant_unavailable` instead of a
- * long hang. PRODUCTION-PLAN.md Phase 4.
- */
-export class HermesUnreachableError extends Error {
-  constructor(message: string, readonly cause?: unknown) {
-    super(message);
-    this.name = 'HermesUnreachableError';
-  }
-}
-
-/** Hermes was reachable but a round failed (HTTP error or timeout). */
-export class HermesMidturnError extends Error {
-  constructor(message: string, readonly cause?: unknown) {
-    super(message);
-    this.name = 'HermesMidturnError';
-  }
-}
-
-/**
- * Last time any Hermes round succeeded. Lets error reporting escalate
- * severity to `fatal` when the agent has been down for an extended window
+ * Last time any provider round succeeded. Lets error reporting escalate
+ * severity to `fatal` when the assistant has been down for an extended window
  * rather than a blip.
  */
-let lastHermesOkAt: number | null = null;
+let lastProviderOkAt: number | null = null;
 
-const HERMES_OUTAGE_FATAL_AFTER_MS = 5 * 60 * 1000;
+const PROVIDER_OUTAGE_FATAL_AFTER_MS = 5 * 60 * 1000;
 
-export function hermesOutageSeverity(): 'error' | 'fatal' {
-  if (lastHermesOkAt === null) return 'error';
-  return Date.now() - lastHermesOkAt > HERMES_OUTAGE_FATAL_AFTER_MS
+export function providerOutageSeverity(): 'error' | 'fatal' {
+  if (lastProviderOkAt === null) return 'error';
+  return Date.now() - lastProviderOkAt > PROVIDER_OUTAGE_FATAL_AFTER_MS
     ? 'fatal'
     : 'error';
 }
 
-interface HermesChatResponse {
+interface ProviderChatResponse {
   choices?: Array<{
     message?: {
       content?: string | null;
@@ -70,8 +62,8 @@ interface HermesChatResponse {
   };
 }
 
-export class ExternalHermesAgent {
-  readonly name = 'hermes';
+export class KindCaddyAgent {
+  readonly name = 'kindcaddy';
 
   constructor(
     private mcp: MCPClient,
@@ -87,10 +79,10 @@ export class ExternalHermesAgent {
     let budgetExceeded = false;
 
     for (let round = 0; round < this.maxRounds(); round++) {
-      // Overall per-turn deadline (Phase 2.3): if the budget is exhausted
-      // between rounds, stop looping and return the best partial answer.
-      // Repeated blowouts are a tuning signal, so each one is persisted as
-      // a warning-severity ErrorReport — never silently absorbed.
+      // Overall per-turn deadline: if the budget is exhausted between rounds,
+      // stop looping and return the best partial answer. Repeated blowouts are
+      // a tuning signal, so each one is persisted as a warning-severity
+      // ErrorReport — never silently absorbed.
       if (round > 0 && Date.now() - turnStartedAt > turnBudgetMs) {
         input.trace.push({
           type: 'llm',
@@ -101,11 +93,11 @@ export class ExternalHermesAgent {
         });
         await reportError(
           new Error(
-            `Chat turn exceeded HERMES_AGENT_TURN_BUDGET_MS (${turnBudgetMs}ms)`,
+            `Chat turn exceeded LLM_TURN_BUDGET_MS (${turnBudgetMs}ms)`,
           ),
           {
             requestId: input.requestId ?? newRequestId(),
-            route: 'agent.hermes',
+            route: 'agent.kindcaddy',
             code: 'turn_budget_exceeded',
             severity: 'warning',
             userId: input.context.userId,
@@ -229,28 +221,28 @@ export class ExternalHermesAgent {
         signal: AbortSignal.timeout(this.timeoutMs()),
       });
     } catch (err) {
-      // Timeout = Hermes accepted the connection but a round overran; a
+      // Timeout = provider accepted the connection but a round overran; a
       // rejected fetch with no response = nothing is listening at all.
       if (err instanceof Error && err.name === 'TimeoutError') {
-        throw new HermesMidturnError(
-          `Hermes Agent timed out after ${this.timeoutMs()}ms`,
+        throw new ProviderMidturnError(
+          `LLM provider timed out after ${this.timeoutMs()}ms`,
           err,
         );
       }
-      throw new HermesUnreachableError(
-        `Hermes Agent is unreachable at ${this.apiBaseUrl()}`,
+      throw new ProviderUnreachableError(
+        `LLM provider is unreachable at ${this.apiBaseUrl()}`,
         err,
       );
     }
 
     if (!res.ok) {
-      throw new HermesMidturnError(
-        `Hermes Agent API error: ${res.status} ${await res.text()}`,
+      throw new ProviderMidturnError(
+        `LLM provider API error: ${res.status} ${await res.text()}`,
       );
     }
-    lastHermesOkAt = Date.now();
+    lastProviderOkAt = Date.now();
 
-    const data = (await res.json()) as HermesChatResponse;
+    const data = (await res.json()) as ProviderChatResponse;
     const message = data.choices?.[0]?.message;
     return {
       content: message?.content ?? '',
@@ -259,8 +251,8 @@ export class ExternalHermesAgent {
   }
 
   private systemPrompt(input: AgentStepInput, tools: RegisteredTool[]): string {
-    return [
-      'You are Nous Hermes Agent, the primary workflow agent inside KindCaddy.',
+    const lines = [
+      'You are KindCaddy, the primary workflow agent inside the KindCaddy platform.',
       'Choose and call the provided KindCaddy MCP tools when they are useful.',
       'If you need a KindCaddy tool and native tool calling is unavailable, reply with only JSON in this shape:',
       '{"kindcaddy_tool_call":{"name":"server.tool_name","arguments":{}}}',
@@ -270,33 +262,41 @@ export class ExternalHermesAgent {
       'Only when a tool result has "ok": false should you explain that the request was not permitted; if that error includes a "suggested_alternative", you may offer it.',
       'Only perform writes when the user intent is clear. Report side effects clearly.',
       `KindCaddy tenant: ${input.context.tenantId}. User: ${input.context.userId}.`,
-      `Available KindCaddy MCP tools: ${formatToolCatalog(tools)}`,
-    ].join(' ');
+    ];
+    const memory = (input.memory ?? []).filter((m) => m.trim().length > 0);
+    if (memory.length > 0) {
+      lines.push(
+        'Things this user has saved for you to remember (use them when relevant; do not repeat them verbatim unless asked):',
+        ...memory.map((m) => `- ${m}`),
+      );
+    }
+    lines.push(`Available KindCaddy MCP tools: ${formatToolCatalog(tools)}`);
+    return lines.join(' ');
   }
 
   private apiBaseUrl(): string {
-    const base = (process.env.HERMES_AGENT_BASE_URL ?? 'http://127.0.0.1:8642/v1')
+    const base = (process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1')
       .replace(/\/+$/, '');
     return base.endsWith('/v1') ? base : `${base}/v1`;
   }
 
   private model(): string {
-    return process.env.HERMES_AGENT_MODEL ?? 'hermes-agent';
+    return process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
   }
 
   private timeoutMs(): number {
-    const value = Number(process.env.HERMES_AGENT_TIMEOUT_MS ?? 60000);
+    const value = Number(process.env.LLM_TIMEOUT_MS ?? 60000);
     return Number.isFinite(value) && value > 0 ? value : 60000;
   }
 
   private maxRounds(): number {
-    const value = Number(process.env.HERMES_AGENT_MAX_TOOL_ROUNDS ?? 5);
+    const value = Number(process.env.LLM_MAX_TOOL_ROUNDS ?? 5);
     return Number.isFinite(value) && value > 0 ? value : 5;
   }
 
-  /** Overall per-turn deadline across all rounds (Phase 2.3). */
+  /** Overall per-turn deadline across all rounds. */
   private turnBudgetMs(): number {
-    const value = Number(process.env.HERMES_AGENT_TURN_BUDGET_MS ?? 180000);
+    const value = Number(process.env.LLM_TURN_BUDGET_MS ?? 180000);
     return Number.isFinite(value) && value > 0 ? value : 180000;
   }
 
@@ -304,37 +304,15 @@ export class ExternalHermesAgent {
     const headers: Record<string, string> = {
       'content-type': 'application/json',
     };
-    if (process.env.HERMES_AGENT_API_KEY) {
-      headers.authorization = `Bearer ${process.env.HERMES_AGENT_API_KEY}`;
+    if (process.env.OPENAI_API_KEY) {
+      headers.authorization = `Bearer ${process.env.OPENAI_API_KEY}`;
     }
-    // Correlates Hermes-side logs with the app-side ErrorReport / response.
+    // Correlates provider-side logs with the app-side ErrorReport / response.
     if (requestId) {
       headers['x-request-id'] = requestId;
     }
     return headers;
   }
-}
-
-/**
- * Project a RegisteredTool into the OpenAI tool-calling shape sent on the wire
- * to Hermes. ARCHITECTURE.md §6.4 declares an invariant: `dataScope`, `domain`,
- * and `capability` MUST NOT cross the wire. Exported so the unit test suite
- * (`__tests__/lib/agents/hermes-projection.test.ts`) can assert that invariant
- * directly. Treat any change to this function as security-relevant.
- */
-export function toOpenAITool(tool: RegisteredTool): Record<string, unknown> {
-  return {
-    type: 'function',
-    function: {
-      name: safeName(tool.name),
-      description: tool.description,
-      parameters: {
-        type: 'object',
-        properties: tool.inputSchema.properties,
-        required: tool.inputSchema.required,
-      },
-    },
-  };
 }
 
 /**
@@ -384,7 +362,7 @@ function toOpenAIMessage(turn: ChatTurn): Record<string, unknown> {
   return { role: turn.role, content: turn.content };
 }
 
-function toToolCall(call: NonNullable<HermesChatResponse['choices']>[number]['message'] extends infer M
+function toToolCall(call: NonNullable<ProviderChatResponse['choices']>[number]['message'] extends infer M
   ? M extends { tool_calls?: Array<infer T> }
     ? T
     : never
@@ -401,15 +379,6 @@ function toToolCall(call: NonNullable<HermesChatResponse['choices']>[number]['me
 
 function isToolCall(call: LLMToolCall | null): call is LLMToolCall {
   return call !== null;
-}
-
-// OpenAI-compatible function names cannot contain dots, so "a.b" -> "a__b".
-export function safeName(name: string): string {
-  return name.replace(/\./g, '__');
-}
-
-function unSafeName(name: string): string {
-  return name.replace(/__/g, '.');
 }
 
 function safeParse(value: string): Record<string, unknown> {

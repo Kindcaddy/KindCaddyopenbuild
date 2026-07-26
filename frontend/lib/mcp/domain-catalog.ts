@@ -12,19 +12,19 @@ export const MCP_DOMAINS: McpDomainDefinition[] = [
     id: 'finance',
     label: 'Finance',
     description: 'NetSuite invoice lookup and QuickBooks invoice sync workflows.',
-    servers: ['netsuite', 'quickbooks'],
+    servers: ['netsuite', 'quickbooks', 'memory'],
   },
   {
     id: 'customer',
     label: 'Customer',
     description: 'Square customer profile search and customer insights.',
-    servers: ['square'],
+    servers: ['square', 'memory'],
   },
   {
     id: 'agent',
     label: 'Agent workspace',
     description: 'KindCaddy resources, files, audit context, and calendar scheduling.',
-    servers: ['sqlite', 'files', 'calendar'],
+    servers: ['sqlite', 'files', 'calendar', 'memory'],
   },
 ];
 

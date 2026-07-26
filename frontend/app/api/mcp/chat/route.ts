@@ -7,16 +7,16 @@ import { host, type ChatResponse } from '@/lib/host/host';
 import { chatTurnLimiter, chatTurnSemaphore } from '@/lib/rate-limit';
 import { RateLimiter } from '@/lib/mcp/policy';
 import {
-  HermesMidturnError,
-  HermesUnreachableError,
-  hermesOutageSeverity,
-} from '@/lib/agents/hermes';
+  ProviderMidturnError,
+  ProviderUnreachableError,
+  providerOutageSeverity,
+} from '@/lib/agents/agent';
 import type { ChatDomain } from '@/lib/mcp/domain-catalog';
 
 interface ChatBody {
   sessionId?: string;
   message?: string;
-  agent?: 'hermes';
+  agent?: 'kindcaddy';
   domain?: ChatDomain;
   /** When true the response is an SSE stream (Phase 5.1). */
   stream?: boolean;
@@ -48,18 +48,18 @@ async function auditRateDenial(
 }
 
 /**
- * Map Hermes transport failures to a clean 503 with a persisted ErrorReport
- * (Phase 4). Returns null for errors that are not Hermes-related.
+ * Map LLM provider transport failures to a clean 503 with a persisted
+ * ErrorReport (Phase 4). Returns null for errors that are not provider-related.
  */
-async function mapHermesFailure(
+async function mapProviderFailure(
   err: unknown,
   meta: { requestId: string; context: RequestContext; sessionId?: string },
 ): Promise<AppError | null> {
   const code =
-    err instanceof HermesUnreachableError
-      ? 'hermes_unreachable'
-      : err instanceof HermesMidturnError
-        ? 'hermes_midturn_error'
+    err instanceof ProviderUnreachableError
+      ? 'llm_unreachable'
+      : err instanceof ProviderMidturnError
+        ? 'llm_error'
         : null;
   if (!code) return null;
 
@@ -67,7 +67,7 @@ async function mapHermesFailure(
     requestId: meta.requestId,
     route: 'POST /api/mcp/chat',
     code,
-    severity: hermesOutageSeverity(),
+    severity: providerOutageSeverity(),
     userId: meta.context.userId,
     tenantId: meta.context.tenantId,
     context: { sessionId: meta.sessionId ?? null },
@@ -130,7 +130,7 @@ export const POST = withGuard(async (req: NextRequest, context, { requestId }) =
       const result = await host.chat(context, chatRequest);
       return NextResponse.json(result);
     } catch (err) {
-      const mapped = await mapHermesFailure(err, {
+      const mapped = await mapProviderFailure(err, {
         requestId,
         context,
         sessionId: body.sessionId,
@@ -174,7 +174,7 @@ export const POST = withGuard(async (req: NextRequest, context, { requestId }) =
           if (err instanceof AppError) {
             send('error', { code: err.code, message: err.message, requestId });
           } else {
-            const mapped = await mapHermesFailure(err, {
+            const mapped = await mapProviderFailure(err, {
               requestId,
               context,
               sessionId: body.sessionId,

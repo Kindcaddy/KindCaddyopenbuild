@@ -11,10 +11,10 @@ import { db } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-const HERMES_PING_TIMEOUT_MS = 2000;
+const LLM_PING_TIMEOUT_MS = 2000;
 
-function hermesBaseUrl(): string {
-  const base = (process.env.HERMES_AGENT_BASE_URL ?? 'http://127.0.0.1:8642/v1')
+function llmBaseUrl(): string {
+  const base = (process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1')
     .replace(/\/+$/, '');
   return base.endsWith('/v1') ? base : `${base}/v1`;
 }
@@ -28,18 +28,17 @@ async function checkDb(): Promise<'ok' | 'error'> {
   }
 }
 
-async function checkHermes(): Promise<'ok' | 'error'> {
+async function checkLlm(): Promise<'ok' | 'error' | 'skipped'> {
+  // Without a key the app runs on the deterministic mock provider, so there is
+  // no external dependency to probe — report 'skipped' rather than failing.
+  if (!process.env.OPENAI_API_KEY) return 'skipped';
   try {
-    const headers: Record<string, string> = {};
-    if (process.env.HERMES_AGENT_API_KEY) {
-      headers.authorization = `Bearer ${process.env.HERMES_AGENT_API_KEY}`;
-    }
-    const res = await fetch(`${hermesBaseUrl()}/models`, {
-      headers,
-      signal: AbortSignal.timeout(HERMES_PING_TIMEOUT_MS),
+    const res = await fetch(`${llmBaseUrl()}/models`, {
+      headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      signal: AbortSignal.timeout(LLM_PING_TIMEOUT_MS),
       cache: 'no-store',
     });
-    // Any HTTP answer (even 401/404) proves the gateway is up and reachable.
+    // Any HTTP answer (even 401/404) proves the provider is up and reachable.
     return res.status < 500 ? 'ok' : 'error';
   } catch {
     return 'error';
@@ -47,10 +46,10 @@ async function checkHermes(): Promise<'ok' | 'error'> {
 }
 
 export async function GET() {
-  const [dbStatus, hermesStatus] = await Promise.all([checkDb(), checkHermes()]);
-  const ok = dbStatus === 'ok' && hermesStatus === 'ok';
+  const [dbStatus, llmStatus] = await Promise.all([checkDb(), checkLlm()]);
+  const ok = dbStatus === 'ok' && llmStatus !== 'error';
   return NextResponse.json(
-    { ok, db: dbStatus, hermes: hermesStatus },
+    { ok, db: dbStatus, llm: llmStatus },
     { status: ok ? 200 : 503 },
   );
 }

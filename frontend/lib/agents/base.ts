@@ -14,10 +14,16 @@ export interface AgentStepInput {
   history: ChatTurn[];
   sessionId: string;
   assistantMessageId: string;
-  /** Correlation id from withGuard; forwarded to Hermes and tool calls. */
+  /** Correlation id from withGuard; forwarded to the provider and tool calls. */
   requestId?: string;
   /** The parent orchestrator trace (tool calls are appended here). */
   trace: AgentTraceEntry[];
+  /**
+   * The caller's saved memory items (already scoped to userId + tenantId and
+   * bounded by the Host). Injected into the system prompt. Empty when the
+   * user's memory mode is off or nothing has been saved.
+   */
+  memory?: string[];
   /** Optional live-progress callback (SSE streaming, Phase 5). */
   onEvent?: (event: AgentProgressEvent) => void;
 }
