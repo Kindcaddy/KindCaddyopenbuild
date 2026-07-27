@@ -49,7 +49,7 @@ load_creds() {
 
 load_full_secrets() {
   load_creds
-  if grep -q 'REPLACE_ME' "$CRED_FILE"; then
+  if grep -qE '^[A-Z_]+="REPLACE_ME"' "$CRED_FILE"; then
     die "credentials.env still has REPLACE_ME placeholders — fill them first ('$0 --gen-secrets' fills the GENERATE ones)"
   fi
   : "${RDS_ENDPOINT:?missing RDS_ENDPOINT (run scripts/provision-rds.sh first)}"
@@ -92,7 +92,13 @@ cmd_gen_secrets() {
   local var val
   for var in DB_PASSWORD AUTH_SECRET RESOURCE_ENCRYPTION_KEY; do
     if grep -q "^${var}=\"GENERATE\"" "$CRED_FILE"; then
-      val=$(openssl rand -base64 32 | tr -d '\n')
+      if [ "$var" = "DB_PASSWORD" ]; then
+        # URL-safe by construction (it is embedded raw into DATABASE_URL on
+        # other systems; render_env also percent-encodes as belt-and-braces).
+        val=$(openssl rand -base64 24 | tr -d '/+=\n')
+      else
+        val=$(openssl rand -base64 32 | tr -d '\n')
+      fi
       sed -i.bak "s|^${var}=\"GENERATE\"|${var}=\"${val}\"|" "$CRED_FILE" && rm -f "$CRED_FILE.bak"
       echo "generated $var (value not displayed)"
     else
@@ -101,12 +107,21 @@ cmd_gen_secrets() {
   done
 }
 
+# Percent-encode for safe embedding in URLs (DB passwords may contain +/= etc.)
+urlencode() {
+  python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=''))" "$1"
+}
+
 render_env() {
   # Writes frontend/.env.production content to the path in $1. No stdout.
   # DATABASE_URL is built via printf args so no credential-URI literal exists
   # in this file (keeps secret-pattern scanners from mangling the script).
+  # The password is percent-ENCODED here; RDS keeps the raw form — they are
+  # the same password, one is the URL-safe spelling of the other.
+  local pw_enc
+  pw_enc=$(urlencode "$DB_PASSWORD")
   printf 'DATABASE_URL="postgresql://%s:%s@%s:5432/kindcaddy?sslmode=require"\n' \
-    "kindcaddy" "$DB_PASSWORD" "$RDS_ENDPOINT" > "$1"
+    "kindcaddy" "$pw_enc" "$RDS_ENDPOINT" > "$1"
   cat >> "$1" <<EOF
 NODE_ENV="production"
 APP_ORIGIN="https://app.kindcaddy.com"

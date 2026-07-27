@@ -23,7 +23,11 @@ set -euo pipefail
 # credentials file when present — same source deploy-ec2.sh uses. Values are
 # never printed; inline env vars still override.
 if [ -f "$HOME/.kindcaddy-deploy/credentials.env" ]; then
+  # Snapshot vars provided inline so the file acts as defaults only and never
+  # clobbers an explicit inline override (e.g. DB_PASSWORD=... ./provision-rds.sh).
+  _INLINE_ENV="$(export -p)"
   set -a; . "$HOME/.kindcaddy-deploy/credentials.env"; set +a
+  eval "$_INLINE_ENV"
 fi
 
 # --- Config (override via env) ---
@@ -82,6 +86,8 @@ else
 fi
 
 echo "==> Ensuring RDS instance ($DB_INSTANCE_ID)"
+# --multi-az is a boolean flag: pass --multi-az or --no-multi-az (never =true/false)
+if [ "$MULTI_AZ" = "true" ]; then MULTI_AZ_FLAG="--multi-az"; else MULTI_AZ_FLAG="--no-multi-az"; fi
 if ! aws rds describe-db-instances --db-instance-identifier "$DB_INSTANCE_ID" >/dev/null 2>&1; then
   aws rds create-db-instance \
     --db-instance-identifier "$DB_INSTANCE_ID" \
@@ -98,7 +104,7 @@ if ! aws rds describe-db-instances --db-instance-identifier "$DB_INSTANCE_ID" >/
     --db-subnet-group-name "$DB_SUBNET_GROUP" \
     --backup-retention-period "$BACKUP_RETENTION_DAYS" \
     --storage-encrypted \
-    --multi-az="$MULTI_AZ" \
+    $MULTI_AZ_FLAG \
     --no-publicly-accessible \
     --auto-minor-version-upgrade \
     --deletion-protection >/dev/null
