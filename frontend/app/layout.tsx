@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Source_Sans_3, Space_Grotesk, Space_Mono } from "next/font/google";
+import AppChrome from "@/components/AppChrome";
 import "./globals.css";
 
 // Self-hosted at build time so the fonts load under the production CSP
@@ -40,7 +41,9 @@ export default function RootLayout({
       lang="en"
       className={`${displayFont.variable} ${bodyFont.variable} ${monoFont.variable}`}
     >
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <AppChrome>{children}</AppChrome>
+      </body>
     </html>
   );
 }
