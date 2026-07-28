@@ -1,33 +1,60 @@
-import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
-import { getRequestContext } from "@/lib/context";
-import { auth } from "@/lib/auth-provider";
+"use client";
 
-// Session-dependent routing must run per request: without this the build
-// prerenders the page once and serves the frozen render from the full-route
-// cache (prod served a cached /app render to signed-out users, 2026-07-28).
-export const dynamic = "force-dynamic";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 /**
  * The app subdomain has no landing page of its own — marketing lives at
- * kindcaddy.com. Route the root by session state (same contract as /login):
+ * kindcaddy.com. Route the root by session state:
  *   signed in                 -> /app
  *   app cookie expired but    -> /api/auth/bridge (silent re-mint, no email)
  *     Auth.js session alive
  *   signed out / stale cookie -> /login
- * This page replaced the stale Next.js template boilerplate that used to
- * greet anyone who clicked the logo (found 2026-07-28, prod).
+ *
+ * This is deliberately a STATIC client page. The Linux production build
+ * prerenders the root route even with `export const dynamic =
+ * "force-dynamic"` (the `app`-segment module-graph quirk from
+ * POSTMORTEM-ROOT-LAYOUT-COLLISION.md — does not reproduce on macOS), which
+ * froze a server-side session branch into the full-route cache and served it
+ * to everyone (2026-07-28). A static shell + client-side routing has no
+ * server dynamic APIs, so no build on any platform can cache a wrong branch.
  */
-export default async function Home() {
-  const context = await getRequestContext(cookies());
-  if (context) {
-    redirect("/app");
-  }
+export default function Home() {
+  const router = useRouter();
 
-  const session = await auth();
-  if (session?.user?.id) {
-    redirect("/api/auth/bridge");
-  }
+  useEffect(() => {
+    const route = async () => {
+      // Live app session? /api/me is the app's only session read path.
+      const me = await fetch("/api/me", { cache: "no-store" }).catch(() => null);
+      if (me?.ok) {
+        router.replace("/app");
+        return;
+      }
 
-  redirect("/login");
+      // App cookie expired but the 30-day Auth.js session still alive?
+      // Hand the browser to the bridge for a silent re-mint (no email).
+      try {
+        const res = await fetch("/api/auth/session", { cache: "no-store" });
+        const session = (await res.json()) as { user?: { id?: string } };
+        if (session?.user?.id) {
+          window.location.href = "/api/auth/bridge";
+          return;
+        }
+      } catch {
+        // Fall through to /login.
+      }
+
+      router.replace("/login");
+    };
+    void route();
+  }, [router]);
+
+  return (
+    <div className="kc-theme kc-canvas flex min-h-screen min-h-[100svh] items-center justify-center">
+      <span className="kc-mark h-11 w-11 text-[0.92rem]" aria-hidden>
+        KC
+      </span>
+      <span className="sr-only">Loading…</span>
+    </div>
+  );
 }
