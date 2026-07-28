@@ -12,7 +12,7 @@ if [ ! -f /swapfile ]; then
   sudo mkswap /swapfile && sudo swapon /swapfile
   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 fi
-git clone https://github.com/Kindcaddy/Kindcaddycustomize.git ~/kindcaddy
+git clone https://github.com/Kindcaddy/KindCaddyopenbuild.git ~/kindcaddy
 # Hermes has been retired: the app calls an OpenAI-compatible provider (OpenRouter)
 # directly, so there is no separate agent repo to clone here.
 echo "DONE. Log out/in for docker group. Then:"
