@@ -127,6 +127,7 @@ NODE_ENV="production"
 APP_ORIGIN="https://app.kindcaddy.com"
 AUTH_SECRET="${AUTH_SECRET}"
 AUTH_TRUST_HOST="true"
+AUTH_URL="https://app.kindcaddy.com"
 AUTH_RESEND_KEY="${AUTH_RESEND_KEY}"
 EMAIL_FROM="${EMAIL_FROM}"
 RESOURCE_ENCRYPTION_KEY="${RESOURCE_ENCRYPTION_KEY}"
@@ -139,6 +140,16 @@ LLM_TURN_BUDGET_MS="180000"
 LLM_MEMORY_TIMEOUT_MS="15000"
 MAX_CONCURRENT_CHAT_TURNS="8"
 EOF
+  # QuickBooks is optional: rendered only when the production keys are present
+  # in credentials.env. The redirect URI is not secret (derived from APP_ORIGIN).
+  if [ -n "${QBO_CLIENT_ID:-}" ] && [ "${QBO_CLIENT_ID}" != "REPLACE_ME" ]; then
+    cat >> "$1" <<EOF
+QBO_CLIENT_ID="${QBO_CLIENT_ID}"
+QBO_CLIENT_SECRET="${QBO_CLIENT_SECRET:-}"
+QBO_REDIRECT_URI="https://app.kindcaddy.com/api/integrations/quickbooks/callback"
+QBO_ENV="${QBO_ENV:-production}"
+EOF
+  fi
 }
 
 cmd_push_secrets() {
@@ -165,12 +176,45 @@ cmd_push_secrets() {
   echo "== uploaded and chmod 600. Local temp copy destroyed."
 }
 
+# Builds on the box and aborts if the build fails. BuildKit noise is captured
+# to a log rather than filtered through a pipe: a swallowed non-zero exit lets
+# the deploy continue and restart the PREVIOUS image, which silently reships
+# stale code while reporting success.
+remote_build() {
+  local target="${1:-}" log
+  log=$(mktemp /tmp/kc-build.XXXXXX)
+  if sshc "cd ~/kindcaddy && docker compose build $target" > "$log" 2>&1; then
+    grep -E "Built|naming to " "$log" | tail -2
+    rm -f "$log"
+  else
+    echo "---- last 40 lines of build output ----" >&2
+    tail -40 "$log" >&2
+    echo "---------------------------------------" >&2
+    rm -f "$log"
+    die "build failed on the box — nothing was restarted, the running image is untouched"
+  fi
+}
+
+# A build can exit 0 and still produce an unusable bundle: a layout.tsx in the
+# segment named `app` once shadowed the root layout, so globals.css and the
+# fonts never entered the graph and every page shipped without a stylesheet.
+# Refuse to restart onto an image that has no compiled CSS.
+verify_app_image() {
+  echo "== verifying the new image ships compiled CSS"
+  if sshc 'cd ~/kindcaddy && docker compose run --rm --no-deps --entrypoint ls app .next/static/css' >/dev/null 2>&1; then
+    echo "   stylesheet present"
+  else
+    die "built image has no .next/static/css — refusing to restart; the previous image is still serving"
+  fi
+}
+
 cmd_deploy() {
   load_creds
   echo "== pulling latest code on box"
   sshc 'cd ~/kindcaddy && git pull --ff-only'
   echo "== building images (this takes several minutes on first run)"
-  sshc 'cd ~/kindcaddy && docker compose build' 2>&1 | grep -Ev "^(#[0-9]+ )?" || true
+  remote_build
+  verify_app_image
   echo "== running migrations against RDS"
   sshc 'cd ~/kindcaddy && docker compose run --rm app npx prisma migrate deploy'
   echo "== starting stack"
@@ -185,7 +229,8 @@ cmd_update() {
   echo "== pulling latest code on box"
   sshc 'cd ~/kindcaddy && git pull --ff-only'
   echo "== rebuilding app image"
-  sshc 'cd ~/kindcaddy && docker compose build app' 2>&1 | grep -Ev "^(#[0-9]+ )?" || true
+  remote_build app
+  verify_app_image
   echo "== applying any new migrations"
   sshc 'cd ~/kindcaddy && docker compose run --rm app npx prisma migrate deploy'
   echo "== restarting app"
