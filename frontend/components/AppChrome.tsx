@@ -4,11 +4,11 @@ import { usePathname } from "next/navigation";
 import AppShell, { type ShellVariant } from "@/components/AppShell";
 
 /**
- * The authenticated chrome is selected here instead of from `app/app/layout.tsx`.
- * A `layout.tsx` inside a segment named `app` collides with the root layout on
- * case-sensitive filesystems: Next builds the root entry from the nested layout,
- * so `<html>`, `globals.css` and next/font are dropped from the output entirely.
- * It reproduces on Linux (the production image) and not on macOS.
+ * The authenticated chrome is selected here rather than from `app/app/layout.tsx`.
+ * A `layout.tsx` inside a segment named `app` takes over the root layout's entry
+ * in the Linux production build, so `<html>`, `globals.css` and next/font drop
+ * out of the output and every page ships without a stylesheet. It does not
+ * reproduce on macOS. See POSTMORTEM-ROOT-LAYOUT-COLLISION.md.
  */
 function variantFor(pathname: string): ShellVariant | null {
   if (pathname === "/app" || pathname.startsWith("/app/")) return "app";
