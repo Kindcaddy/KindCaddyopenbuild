@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getRequestContext } from './context';
+import { setAuthCookie } from './auth';
 import { authorize, Permission } from './rbac';
 import { AppError, newRequestId, reportError } from './errors';
 
@@ -111,6 +112,12 @@ export function withGuard(
           requestId
         );
       }
+
+      // Sliding session renewal: every authenticated API call re-mints the
+      // auth_session cookie with a fresh maxAge, so an active user never hits
+      // the fixed expiry. The app is API-driven (every page fetches /api/* on
+      // load), so real usage keeps the session alive without a new email link.
+      setAuthCookie(context.userId, context.tenantId);
 
       return withRequestId(await handler(req, context, { requestId }), requestId);
     } catch (err) {

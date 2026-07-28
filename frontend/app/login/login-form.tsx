@@ -417,6 +417,7 @@ function LoginFormInner({ googleEnabled, devLoginEnabled }: LoginFormProps) {
 
                     <p className="mt-5 text-center text-[0.78rem] leading-relaxed text-[var(--kc-muted)]">
                       No password to steal — we email you a single-use link.
+                      After that, you stay signed in on this device.
                     </p>
 
                     {devLoginEnabled && (
