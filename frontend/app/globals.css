@@ -25,3 +25,1018 @@ body {
     text-wrap: balance;
   }
 }
+
+/* ==========================================================================
+   KindCaddy brand theme — mirrors website/css/styles.css ("warm futurism").
+   Everything is scoped under .kc-theme so pages that still use the older
+   blue/gray Tailwind styling render unchanged.
+   ========================================================================== */
+
+.kc-theme {
+  --kc-bg: #f6f1e8;
+  --kc-bg-soft: #efe5d7;
+  --kc-panel: rgba(255, 253, 249, 0.78);
+  --kc-elevated: rgba(255, 255, 255, 0.62);
+  --kc-ink: #161d19;
+  --kc-text: #28312d;
+  --kc-muted: #5d645e;
+  --kc-accent: #bb6a45;
+  --kc-accent-hover: #99502f;
+  --kc-accent-soft: #f1d8c5;
+  --kc-sage: #67795f;
+  --kc-sage-soft: #d8e0d2;
+  --kc-line: rgba(31, 41, 36, 0.1);
+  --kc-hairline: rgba(255, 255, 255, 0.6);
+  --kc-ring: rgba(187, 106, 69, 0.35);
+  --kc-shadow: 0 30px 70px -28px rgba(24, 26, 24, 0.32);
+  --kc-shadow-soft: 0 16px 40px -24px rgba(24, 26, 24, 0.28);
+  --kc-glow: 0 18px 44px -14px rgba(187, 106, 69, 0.55);
+  --kc-blur: blur(18px) saturate(135%);
+
+  /* The brand palette is light-only; opt out of UA dark-mode form controls. */
+  color-scheme: light;
+  color: var(--kc-text);
+  font-family: var(--font-kc-body), "Source Sans 3", system-ui, sans-serif;
+  line-height: 1.65;
+}
+
+.kc-display {
+  font-family: var(--font-kc-display), "Space Grotesk", Georgia, serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
+  color: var(--kc-ink);
+}
+
+.kc-mono {
+  font-family: var(--font-kc-mono), ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* --- Canvas: ambient gradient wash + drifting data grid ------------------ */
+
+.kc-canvas {
+  background:
+    radial-gradient(ellipse 60% 50% at 12% -8%, rgba(241, 216, 197, 0.85), transparent 60%),
+    radial-gradient(ellipse 55% 50% at 92% 2%, rgba(216, 224, 210, 0.85), transparent 58%),
+    radial-gradient(ellipse 70% 60% at 50% 108%, rgba(187, 106, 69, 0.14), transparent 60%),
+    var(--kc-bg);
+  background-position: 0% 0%, 100% 0%, 50% 100%, 0 0;
+  background-size: 140% 140%, 130% 130%, 160% 160%, auto;
+  animation: kc-ambient-glow 22s ease-in-out infinite alternate;
+}
+
+.kc-canvas::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle, rgba(182, 106, 72, 0.18) 0 1px, transparent 1.5px),
+    radial-gradient(circle, rgba(111, 127, 104, 0.16) 0 1px, transparent 1.5px);
+  background-position: 0 0, 26px 34px;
+  background-size: 86px 86px, 118px 118px;
+  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.7), transparent 80%);
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.7), transparent 80%);
+  opacity: 0.3;
+  animation: kc-data-drift 28s linear infinite;
+}
+
+/* --- Slow-rotating orbit fields -----------------------------------------
+   Concentric hairline rings with a faint conic sweep. Masked to fade out
+   before the edge so they read as depth rather than decoration.            */
+
+.kc-orbit {
+  position: absolute;
+  z-index: 0;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0.55;
+  background:
+    repeating-radial-gradient(
+      circle at 50% 50%,
+      transparent 0 33px,
+      rgba(182, 106, 72, 0.14) 33px 34px
+    ),
+    conic-gradient(
+      from 0deg,
+      rgba(182, 106, 72, 0.1),
+      transparent 24%,
+      rgba(111, 127, 104, 0.1) 50%,
+      transparent 74%,
+      rgba(182, 106, 72, 0.1)
+    );
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 26%, transparent 70%);
+  mask-image: radial-gradient(circle at 50% 50%, #000 26%, transparent 70%);
+  animation: kc-orbit-field 52s linear infinite;
+}
+
+.kc-orbit--sage {
+  background:
+    repeating-radial-gradient(
+      circle at 50% 50%,
+      transparent 0 27px,
+      rgba(111, 127, 104, 0.14) 27px 28px
+    ),
+    conic-gradient(
+      from 0deg,
+      rgba(111, 127, 104, 0.1),
+      transparent 30%,
+      rgba(182, 106, 72, 0.08) 60%,
+      transparent 88%,
+      rgba(111, 127, 104, 0.1)
+    );
+  animation-duration: 74s;
+  animation-direction: reverse;
+}
+
+/* Soft breathing halo that sits directly behind the login card. */
+.kc-halo {
+  position: absolute;
+  z-index: 0;
+  inset: -14% -10%;
+  pointer-events: none;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(241, 216, 197, 0.72), transparent 62%),
+    radial-gradient(circle at 72% 74%, rgba(216, 224, 210, 0.68), transparent 60%);
+  filter: blur(26px);
+  animation: kc-halo-breathe 14s ease-in-out infinite alternate;
+}
+
+/* --- Surfaces ------------------------------------------------------------ */
+
+.kc-surface {
+  background: var(--kc-elevated);
+  -webkit-backdrop-filter: var(--kc-blur);
+  backdrop-filter: var(--kc-blur);
+  border: 1px solid var(--kc-line);
+  border-radius: 18px;
+  box-shadow: var(--kc-shadow-soft), inset 0 1px 0 var(--kc-hairline);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.kc-surface:hover {
+  transform: translateY(-3px);
+  border-color: var(--kc-ring);
+  box-shadow: var(--kc-shadow), 0 0 0 1px var(--kc-ring), inset 0 1px 0 var(--kc-hairline);
+}
+
+.kc-card {
+  position: relative;
+  overflow: hidden;
+  background: var(--kc-panel);
+  -webkit-backdrop-filter: var(--kc-blur);
+  backdrop-filter: var(--kc-blur);
+  border: 1px solid var(--kc-line);
+  border-radius: 26px;
+  box-shadow: var(--kc-shadow), inset 0 1px 0 var(--kc-hairline);
+}
+
+/* Light sweeps across the card behind its content, never over it. */
+.kc-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 62%
+  );
+  transform: translateX(-130%);
+  animation: kc-sheen 11s ease-in-out infinite;
+}
+
+.kc-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* --- Brand mark ---------------------------------------------------------- */
+
+.kc-mark {
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: linear-gradient(145deg, var(--kc-accent-soft), var(--kc-sage-soft));
+  font-family: var(--font-kc-mono), ui-monospace, Menlo, monospace;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--kc-ink);
+  animation: kc-brand-pulse 6.5s ease-in-out infinite;
+}
+
+/* --- Text accents -------------------------------------------------------- */
+
+.kc-headline {
+  background: linear-gradient(
+    100deg,
+    var(--kc-ink) 0%,
+    var(--kc-accent) 38%,
+    var(--kc-sage) 62%,
+    var(--kc-ink) 100%
+  );
+  background-size: 220% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: kc-text-current 10s ease-in-out infinite;
+}
+
+.kc-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--font-kc-mono), ui-monospace, Menlo, monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--kc-sage);
+}
+
+.kc-eyebrow::before {
+  content: "";
+  width: 28px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.6;
+}
+
+/* Blinking status dot used by the trust bar. */
+.kc-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--kc-accent);
+  box-shadow: 0 0 0 4px rgba(182, 106, 72, 0.12);
+  animation: kc-dot-blink 4.8s ease-in-out infinite;
+}
+
+.kc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.34rem 0.66rem;
+  border-radius: 999px;
+  background: rgba(216, 224, 210, 0.6);
+  border: 1px solid rgba(103, 121, 95, 0.22);
+  color: var(--kc-ink);
+  font-family: var(--font-kc-mono), ui-monospace, Menlo, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+/* --- Controls ------------------------------------------------------------ */
+
+.kc-btn {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.66rem 1.15rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.2s ease, color 0.2s ease,
+    border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.kc-btn--block {
+  width: 100%;
+  padding: 0.8rem 1.25rem;
+  font-size: 0.94rem;
+}
+
+.kc-btn::after {
+  content: "";
+  position: absolute;
+  inset: -40% -60%;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.45) 50%,
+    transparent 62%
+  );
+  transform: translateX(-80%) rotate(8deg);
+  transition: transform 0.55s ease;
+}
+
+.kc-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.kc-btn:hover:not(:disabled)::after {
+  transform: translateX(80%) rotate(8deg);
+}
+
+.kc-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--kc-ring);
+}
+
+.kc-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+  box-shadow: none;
+}
+
+.kc-btn-primary {
+  background: linear-gradient(135deg, var(--kc-accent) 0%, var(--kc-accent-hover) 100%);
+  color: #fff;
+  box-shadow: var(--kc-glow), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+/* Muted but still legible while the form is incomplete or submitting. */
+.kc-btn-primary:disabled {
+  opacity: 1;
+  background: linear-gradient(
+    135deg,
+    rgba(187, 106, 69, 0.38) 0%,
+    rgba(153, 80, 47, 0.38) 100%
+  );
+}
+
+.kc-btn-primary:hover:not(:disabled) {
+  box-shadow: 0 22px 50px -14px rgba(187, 106, 69, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.kc-btn-secondary {
+  background: rgba(255, 255, 255, 0.55);
+  -webkit-backdrop-filter: var(--kc-blur);
+  backdrop-filter: var(--kc-blur);
+  border-color: var(--kc-line);
+  color: var(--kc-ink);
+  box-shadow: inset 0 1px 0 var(--kc-hairline);
+}
+
+.kc-btn-secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: var(--kc-ring);
+}
+
+.kc-btn--sm {
+  width: auto;
+  padding: 0.42rem 0.85rem;
+  font-size: 0.82rem;
+}
+
+.kc-btn-ghost {
+  background: transparent;
+  color: var(--kc-muted);
+}
+
+.kc-btn-ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--kc-ink);
+}
+
+.kc-btn-danger {
+  background: linear-gradient(135deg, #c04a30 0%, #9c3620 100%);
+  color: #fff;
+  box-shadow: 0 16px 38px -16px rgba(160, 56, 33, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.kc-btn-danger:hover:not(:disabled) {
+  box-shadow: 0 20px 46px -14px rgba(160, 56, 33, 0.72),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.kc-input {
+  width: 100%;
+  padding: 0.72rem 0.95rem;
+  border-radius: 14px;
+  border: 1px solid var(--kc-line);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--kc-ink);
+  font-family: inherit;
+  font-size: 0.98rem;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.kc-input::placeholder {
+  color: var(--kc-muted);
+  opacity: 0.7;
+}
+
+.kc-input:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.95);
+  border-color: var(--kc-accent);
+  box-shadow: 0 0 0 4px var(--kc-ring);
+}
+
+.kc-input:disabled {
+  opacity: 0.6;
+}
+
+.kc-input--sm {
+  padding: 0.5rem 0.78rem;
+  border-radius: 12px;
+  font-size: 0.86rem;
+}
+
+.kc-select {
+  width: 100%;
+  padding: 0.5rem 2rem 0.5rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid var(--kc-line);
+  background-color: rgba(255, 255, 255, 0.72);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='none' stroke='%235d645e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M1 1.5 6 6.5l5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  color: var(--kc-ink);
+  font-family: inherit;
+  font-size: 0.88rem;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.kc-select:focus {
+  outline: none;
+  border-color: var(--kc-accent);
+  box-shadow: 0 0 0 4px var(--kc-ring);
+}
+
+.kc-textarea {
+  width: 100%;
+  padding: 0.72rem 0.95rem;
+  border-radius: 14px;
+  border: 1px solid var(--kc-line);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--kc-ink);
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  resize: vertical;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.kc-textarea:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.95);
+  border-color: var(--kc-accent);
+  box-shadow: 0 0 0 4px var(--kc-ring);
+}
+
+.kc-checkbox {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: 0 0 auto;
+  border-radius: 5px;
+  border: 1px solid rgba(31, 41, 36, 0.24);
+  background: rgba(255, 255, 255, 0.85);
+  accent-color: var(--kc-accent);
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   Application shell + data-surface components
+   ========================================================================== */
+
+.kc-shell {
+  position: relative;
+  display: flex;
+  min-height: 100vh;
+  min-height: 100svh;
+  flex-direction: column;
+  overflow-x: hidden;
+}
+
+.kc-appbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(248, 244, 237, 0.72);
+  -webkit-backdrop-filter: var(--kc-blur);
+  backdrop-filter: var(--kc-blur);
+  border-bottom: 1px solid rgba(31, 41, 36, 0.08);
+  box-shadow: 0 1px 0 var(--kc-hairline);
+}
+
+.kc-container {
+  width: 100%;
+  max-width: 1360px;
+  margin: 0 auto;
+  padding-inline: 1rem;
+}
+
+@media (min-width: 640px) {
+  .kc-container {
+    padding-inline: 1.5rem;
+  }
+}
+
+.kc-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--kc-muted);
+  transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.kc-nav-link:hover,
+.kc-nav-link[aria-current="page"] {
+  color: var(--kc-ink);
+  background: rgba(255, 255, 255, 0.62);
+  border-color: var(--kc-line);
+  box-shadow: inset 0 1px 0 var(--kc-hairline);
+}
+
+/* Static content panel — same glass as .kc-surface without the hover lift. */
+.kc-panel {
+  background: var(--kc-panel);
+  -webkit-backdrop-filter: var(--kc-blur);
+  backdrop-filter: var(--kc-blur);
+  border: 1px solid var(--kc-line);
+  border-radius: 18px;
+  box-shadow: var(--kc-shadow-soft), inset 0 1px 0 var(--kc-hairline);
+}
+
+.kc-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--kc-line);
+}
+
+.kc-panel-title {
+  font-family: var(--font-kc-mono), ui-monospace, Menlo, monospace;
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--kc-muted);
+}
+
+.kc-title {
+  font-family: var(--font-kc-display), "Space Grotesk", Georgia, serif;
+  font-weight: 600;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  letter-spacing: -0.025em;
+  line-height: 1.12;
+  color: var(--kc-ink);
+}
+
+.kc-subtitle {
+  color: var(--kc-muted);
+  font-size: 0.95rem;
+}
+
+.kc-label {
+  display: block;
+  font-family: var(--font-kc-mono), ui-monospace, Menlo, monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--kc-muted);
+}
+
+/* --- Chips (compact status labels) --------------------------------------- */
+
+.kc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--kc-line);
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--kc-text);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.kc-chip--accent {
+  background: rgba(241, 216, 197, 0.62);
+  border-color: rgba(187, 106, 69, 0.3);
+  color: #7d4227;
+}
+
+.kc-chip--sage {
+  background: rgba(216, 224, 210, 0.62);
+  border-color: rgba(103, 121, 95, 0.32);
+  color: #3f4d38;
+}
+
+.kc-chip--danger {
+  background: rgba(196, 74, 48, 0.1);
+  border-color: rgba(196, 74, 48, 0.3);
+  color: #8f2f1c;
+}
+
+.kc-chip--muted {
+  background: rgba(31, 41, 36, 0.05);
+  border-color: var(--kc-line);
+  color: var(--kc-muted);
+}
+
+/* --- Notes (inline banners) ---------------------------------------------- */
+
+.kc-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 14px;
+  border: 1px solid var(--kc-line);
+  background: rgba(255, 255, 255, 0.66);
+  font-size: 0.87rem;
+  line-height: 1.55;
+  color: var(--kc-text);
+}
+
+.kc-note--sage {
+  background: rgba(216, 224, 210, 0.45);
+  border-color: rgba(103, 121, 95, 0.28);
+  color: var(--kc-ink);
+}
+
+.kc-note--accent {
+  background: rgba(241, 216, 197, 0.5);
+  border-color: rgba(187, 106, 69, 0.28);
+  color: var(--kc-ink);
+}
+
+.kc-note--danger {
+  background: rgba(196, 74, 48, 0.08);
+  border-color: rgba(196, 74, 48, 0.26);
+  color: #8a3b21;
+}
+
+/* --- Toast --------------------------------------------------------------- */
+
+.kc-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.8rem 1rem;
+  border-radius: 16px;
+  border: 1px solid var(--kc-line);
+  background: var(--kc-panel);
+  -webkit-backdrop-filter: var(--kc-blur);
+  backdrop-filter: var(--kc-blur);
+  box-shadow: var(--kc-shadow);
+  font-size: 0.88rem;
+  color: var(--kc-ink);
+  animation: kc-rise-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.kc-toast--sage {
+  border-color: rgba(103, 121, 95, 0.32);
+}
+
+.kc-toast--danger {
+  border-color: rgba(196, 74, 48, 0.3);
+}
+
+/* --- Tables -------------------------------------------------------------- */
+
+.kc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.kc-table th {
+  padding: 0.7rem 1rem;
+  text-align: left;
+  font-family: var(--font-kc-mono), ui-monospace, Menlo, monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--kc-muted);
+  border-bottom: 1px solid var(--kc-line);
+  white-space: nowrap;
+}
+
+.kc-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(31, 41, 36, 0.06);
+  color: var(--kc-text);
+  vertical-align: middle;
+}
+
+.kc-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.kc-table tbody tr {
+  transition: background 0.15s ease;
+}
+
+.kc-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* --- Selectable list rows (chat sessions, nav lists) --------------------- */
+
+.kc-row {
+  display: block;
+  width: 100%;
+  padding: 0.6rem 0.85rem;
+  text-align: left;
+  border-left: 2px solid transparent;
+  color: var(--kc-text);
+  transition: background 0.15s ease, border-color 0.15s ease;
+  cursor: pointer;
+}
+
+.kc-row:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.kc-row[aria-selected="true"] {
+  border-left-color: var(--kc-accent);
+  background: rgba(241, 216, 197, 0.42);
+}
+
+/* --- Chat bubbles -------------------------------------------------------- */
+
+.kc-bubble {
+  max-width: 42rem;
+  padding: 0.7rem 0.95rem;
+  border-radius: 16px;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.kc-bubble--user {
+  margin-left: auto;
+  background: linear-gradient(135deg, var(--kc-accent) 0%, var(--kc-accent-hover) 100%);
+  color: #fff;
+  border-bottom-right-radius: 6px;
+  box-shadow: var(--kc-glow);
+}
+
+.kc-bubble--agent {
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--kc-line);
+  color: var(--kc-text);
+  border-bottom-left-radius: 6px;
+  box-shadow: inset 0 1px 0 var(--kc-hairline);
+}
+
+/* --- Modal --------------------------------------------------------------- */
+
+.kc-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(22, 29, 25, 0.42);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  animation: kc-fade-in 0.2s ease both;
+}
+
+.kc-modal {
+  width: 100%;
+  max-width: 30rem;
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 1.5rem;
+  border-radius: 22px;
+  border: 1px solid var(--kc-line);
+  background: #fffdf9;
+  box-shadow: var(--kc-shadow);
+  animation: kc-rise-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* --- Misc ---------------------------------------------------------------- */
+
+.kc-divider {
+  height: 1px;
+  background: var(--kc-line);
+  border: 0;
+}
+
+.kc-skeleton {
+  border-radius: 10px;
+  background: linear-gradient(
+    90deg,
+    rgba(31, 41, 36, 0.06) 25%,
+    rgba(31, 41, 36, 0.11) 37%,
+    rgba(31, 41, 36, 0.06) 63%
+  );
+  background-size: 400% 100%;
+  animation: kc-shimmer 1.5s ease-in-out infinite;
+}
+
+.kc-code {
+  font-family: var(--font-kc-mono), ui-monospace, Menlo, monospace;
+  font-size: 0.78rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 6px;
+  background: rgba(31, 41, 36, 0.06);
+  color: var(--kc-ink);
+  overflow-wrap: anywhere;
+}
+
+.kc-pre {
+  font-family: var(--font-kc-mono), ui-monospace, Menlo, monospace;
+  font-size: 0.76rem;
+  line-height: 1.6;
+  padding: 0.8rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid var(--kc-line);
+  background: rgba(31, 41, 36, 0.045);
+  color: var(--kc-text);
+  overflow-x: auto;
+}
+
+/* Brand-tinted scrollbars inside scrollable app regions. */
+.kc-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(187, 106, 69, 0.35) transparent;
+}
+
+.kc-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.kc-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.kc-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(187, 106, 69, 0.3);
+}
+
+.kc-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(187, 106, 69, 0.5);
+}
+
+/* --- Entrance ------------------------------------------------------------ */
+
+.kc-rise {
+  animation: kc-rise-in 0.72s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--kc-delay, 0s);
+}
+
+/* --- Keyframes ----------------------------------------------------------- */
+
+@keyframes kc-ambient-glow {
+  0% {
+    background-position: 0% 0%, 100% 0%, 50% 100%, 0 0;
+  }
+  100% {
+    background-position: 14% 10%, 84% 14%, 60% 92%, 0 0;
+  }
+}
+
+@keyframes kc-data-drift {
+  from {
+    background-position: 0 0, 26px 34px;
+  }
+  to {
+    background-position: 86px 86px, 144px 152px;
+  }
+}
+
+@keyframes kc-orbit-field {
+  from {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.04);
+  }
+  to {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+@keyframes kc-halo-breathe {
+  0% {
+    transform: scale(0.94);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.06);
+    opacity: 0.9;
+  }
+}
+
+@keyframes kc-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes kc-text-current {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes kc-brand-pulse {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 1px rgba(31, 41, 36, 0.05), 0 0 0 rgba(182, 106, 72, 0);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1px rgba(31, 41, 36, 0.05), 0 0 28px rgba(182, 106, 72, 0.22);
+  }
+}
+
+@keyframes kc-dot-blink {
+  0%,
+  100% {
+    background: var(--kc-accent);
+    box-shadow: 0 0 0 4px rgba(182, 106, 72, 0.1);
+    transform: scale(1);
+  }
+  50% {
+    background: var(--kc-sage);
+    box-shadow: 0 0 0 7px rgba(111, 127, 104, 0.14);
+    transform: scale(1.16);
+  }
+}
+
+@keyframes kc-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes kc-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+@keyframes kc-sheen {
+  0%,
+  62% {
+    transform: translateX(-130%);
+  }
+  84%,
+  100% {
+    transform: translateX(130%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kc-theme *,
+  .kc-theme *::before,
+  .kc-theme *::after,
+  .kc-canvas,
+  .kc-canvas::before {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

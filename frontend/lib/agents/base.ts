@@ -5,7 +5,7 @@
  */
 
 import type { RequestContext } from '../context';
-import type { LLMProvider, ChatTurn, LLMToolSpec } from '../llm/types';
+import type { LLMProvider, ChatTurn, LLMToolSpec, ByokConfig } from '../llm/types';
 import type { MCPClient } from '../mcp/client';
 import type { RegisteredTool } from '../mcp/registry';
 
@@ -24,6 +24,9 @@ export interface AgentStepInput {
    * user's memory mode is off or nothing has been saved.
    */
   memory?: string[];
+  /** Per-user BYOK override: replaces the platform provider key/URL/model
+   *  for this turn only. Session-held (encrypted cookie), never persisted. */
+  byok?: ByokConfig;
   /** Optional live-progress callback (SSE streaming, Phase 5). */
   onEvent?: (event: AgentProgressEvent) => void;
 }

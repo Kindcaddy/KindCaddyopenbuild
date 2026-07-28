@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
@@ -14,12 +13,11 @@ import {
   Send,
   Server,
   Square,
-  Sparkles,
   Upload,
   Wrench,
   Zap,
 } from "lucide-react";
-import UserProfileDropdown from "@/components/UserProfileDropdown";
+import { PageHeader } from "@/components/AppShell";
 import type { ChatDomain } from "@/lib/mcp/domain-catalog";
 
 type AgentId = "kindcaddy";
@@ -487,67 +485,65 @@ export default function AssistantPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      <nav className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-14">
-            <Link href="/app" className="flex items-center gap-2">
-              <Sparkles className="h-6 w-6 text-blue-600" />
-              <span className="font-semibold text-gray-900 dark:text-white">
-                KindCaddy · Assistant
-              </span>
-            </Link>
-            <div className="flex items-center gap-3">
-              <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 capitalize">
-                {roleView} view
-              </span>
-              <span className="flex items-center gap-1">
-                <Server className="h-3.5 w-3.5" />
-                {allowedServerCount} of {filteredServers.length} MCP servers
-              </span>
-              <span className="flex items-center gap-1">
-                <Wrench className="h-3.5 w-3.5" />
-                {totalTools} tools
-              </span>
-              <UserProfileDropdown />
-            </div>
-          </div>
-        </div>
-      </nav>
+    <div className="kc-container py-6">
+      <PageHeader
+        eyebrow="Assistant"
+        title="Ask KindCaddy"
+        actions={
+          <>
+            <span className="kc-chip kc-chip--accent capitalize">
+              {roleView} view
+            </span>
+            <span className="kc-chip">
+              <Server className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
+              {allowedServerCount} of {filteredServers.length} MCP servers
+            </span>
+            <span className="kc-chip">
+              <Wrench className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
+              {totalTools} tools
+            </span>
+          </>
+        }
+      />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 grid grid-cols-12 gap-4">
+      <div className="grid grid-cols-12 gap-4">
         {/* LEFT: sessions */}
-        <aside className="col-span-12 md:col-span-3">
+        <aside className="kc-rise col-span-12 md:col-span-3">
           <button
             onClick={newSession}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium mb-3"
+            className="kc-btn kc-btn-primary kc-btn--block mb-3"
           >
-            <MessageSquarePlus className="h-4 w-4" /> New chat
+            <MessageSquarePlus className="h-4 w-4" strokeWidth={1.8} /> New chat
           </button>
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
-            <div className="px-3 py-2 text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800">
-              Sessions
+          <div className="kc-panel overflow-hidden">
+            <div className="kc-panel-head">
+              <span className="kc-panel-title">Sessions</span>
             </div>
-            <ul className="max-h-[60vh] overflow-y-auto">
+            <ul
+              role="listbox"
+              aria-label="Chat sessions"
+              className="kc-scroll max-h-[60vh] overflow-y-auto"
+            >
               {sessions.length === 0 && (
-                <li className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400">
+                <li
+                  role="presentation"
+                  className="px-3 py-4 text-sm text-[var(--kc-muted)]"
+                >
                   No sessions yet.
                 </li>
               )}
               {sessions.map((s) => (
-                <li key={s.id}>
+                <li key={s.id} role="presentation">
                   <button
+                    role="option"
+                    aria-selected={currentId === s.id}
                     onClick={() => setCurrentId(s.id)}
-                    className={`w-full text-left px-3 py-2 text-sm border-l-2 hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                      currentId === s.id
-                        ? "border-blue-600 bg-blue-50 dark:bg-blue-950"
-                        : "border-transparent"
-                    }`}
+                    className="kc-row text-sm"
                   >
-                    <div className="truncate text-gray-900 dark:text-white">
+                    <div className="truncate text-[var(--kc-ink)]">
                       {s.title}
                     </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                    <div className="text-xs text-[var(--kc-muted)]">
                       {s.messageCount} msg · {new Date(s.updatedAt).toLocaleString()}
                     </div>
                   </button>
@@ -558,50 +554,60 @@ export default function AssistantPage() {
         </aside>
 
         {/* CENTER: chat */}
-        <main className="col-span-12 md:col-span-6 flex flex-col bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 min-h-[70vh]">
-          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <Bot className="h-4 w-4 text-blue-600" />
+        <main
+          className="kc-rise kc-panel col-span-12 flex min-h-[70vh] flex-col md:col-span-6"
+          style={{ "--kc-delay": "0.06s" } as React.CSSProperties}
+        >
+          <div className="kc-panel-head">
+            <div className="flex items-center gap-2 text-sm text-[var(--kc-text)]">
+              <Bot
+                className="h-4 w-4 text-[var(--kc-accent)]"
+                strokeWidth={1.8}
+                aria-hidden
+              />
               <span className="font-medium">
                 Chat · {selectedDomain?.label ?? "No active domain"} mode
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-                <span className="hidden sm:inline">Memory</span>
+              <label className="flex items-center gap-1.5">
+                <span className="kc-mono hidden text-[0.6rem] font-bold uppercase tracking-[0.18em] text-[var(--kc-muted)] sm:inline">
+                  Memory
+                </span>
                 <select
                   value={memoryMode}
                   onChange={(e) => changeMemoryMode(e.target.value as MemoryMode)}
                   title="How KindCaddy remembers things about you"
-                  className="text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-1 text-gray-700 dark:text-gray-200"
+                  className="kc-select !w-auto"
                 >
                   <option value="smart">Smart</option>
                   <option value="explicit">Explicit</option>
                   <option value="off">Off</option>
                 </select>
               </label>
-              <span className="text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 text-gray-700 dark:text-gray-200">
-                KindCaddy
-              </span>
+              <span className="kc-chip kc-chip--muted">KindCaddy</span>
             </div>
           </div>
 
           {banner && (
-            <div className="mx-4 mt-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 flex items-start justify-between gap-3">
-              <p className="text-sm text-amber-800 dark:text-amber-300">{banner}</p>
+            <div className="kc-note kc-note--accent mx-4 mt-3 justify-between">
+              <p>{banner}</p>
               <button
                 type="button"
                 onClick={() => setBanner(null)}
-                className="text-xs text-amber-700 dark:text-amber-400 hover:underline shrink-0"
+                className="kc-btn kc-btn-ghost kc-btn--sm shrink-0"
               >
                 Dismiss
               </button>
             </div>
           )}
 
-          <div ref={scrollerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+          <div
+            ref={scrollerRef}
+            className="kc-scroll flex-1 space-y-4 overflow-y-auto px-4 py-4"
+          >
             {messages.length === 0 && !loading && (
-              <div className="text-sm text-gray-600 dark:text-gray-400 space-y-3">
+              <div className="space-y-3 text-sm text-[var(--kc-muted)]">
                 <p>Ask a question to kick off the MCP loop. Try:</p>
                 <div className="flex flex-wrap gap-2">
                   {selectedDomain && isSelectedDomainActive ? (
@@ -609,17 +615,17 @@ export default function AssistantPage() {
                       <button
                         key={ex}
                         onClick={() => send(ex)}
-                        className="text-xs px-2.5 py-1.5 rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200"
+                        className="kc-btn kc-btn-secondary kc-btn--sm max-w-full text-left !whitespace-normal"
                       >
                         {ex}
                       </button>
                     ))
                   ) : (
-                    <span className="text-xs text-amber-600 dark:text-amber-400">
+                    <p className="kc-note kc-note--accent">
                       {selectedDomain
                         ? `The "${selectedDomain.label}" domain is disabled for your account. Ask an admin to enable it.`
                         : "No MCP domains are available. Ask an admin to grant access."}
-                    </span>
+                    </p>
                   )}
                 </div>
               </div>
@@ -628,25 +634,25 @@ export default function AssistantPage() {
               <MessageView key={m.id} m={m} />
             ))}
             {loading && (
-              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                <Loader2 className="h-4 w-4 animate-spin" />
+              <div className="flex items-center gap-2 text-sm text-[var(--kc-muted)]">
+                <Loader2 className="h-4 w-4 animate-spin text-[var(--kc-accent)]" />
                 {statusText ?? "Thinking…"}
               </div>
             )}
             {retryCountdown !== null && (
-              <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
+              <div className="flex items-center gap-2 text-sm text-[var(--kc-accent)]">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 You&apos;re sending messages quickly — retrying in {retryCountdown}s…
               </div>
             )}
             {err && (
-              <div className="text-sm text-red-600 dark:text-red-400 flex items-center gap-3">
+              <div className="flex items-center gap-3 text-sm text-[#8f2f1c]">
                 <span>Error: {err}</span>
                 {lastFailedMessage && !loading && (
                   <button
                     type="button"
                     onClick={() => send(lastFailedMessage)}
-                    className="text-xs px-2 py-1 rounded border border-red-300 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/30"
+                    className="kc-btn kc-btn-secondary kc-btn--sm"
                   >
                     Retry
                   </button>
@@ -660,28 +666,26 @@ export default function AssistantPage() {
               e.preventDefault();
               send(input);
             }}
-            className="p-3 border-t border-gray-200 dark:border-gray-800 space-y-2"
+            className="space-y-2 border-t border-[var(--kc-line)] p-3"
           >
             {files.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {files.map((f, idx) => (
-                  <span
-                    key={`${f.name}-${idx}`}
-                    className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-                  >
-                    <FileUp className="h-3 w-3" />
+                  <span key={`${f.name}-${idx}`} className="kc-chip">
+                    <FileUp className="h-3 w-3" strokeWidth={1.8} aria-hidden />
                     {f.name}
                   </span>
                 ))}
               </div>
             )}
-            <div className="flex gap-2">
+            {/* Wraps on narrow screens so the message field keeps full width. */}
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 text-sm flex items-center gap-1.5"
+                className="kc-btn kc-btn-secondary"
               >
-                <Upload className="h-4 w-4" />
+                <Upload className="h-4 w-4" strokeWidth={1.8} aria-hidden />
                 Upload
               </button>
               <div className="relative">
@@ -689,47 +693,53 @@ export default function AssistantPage() {
                   type="button"
                   onClick={() => setDomainMenuOpen((open) => !open)}
                   disabled={domains.length === 0}
-                  className="min-w-36 px-2 py-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 flex items-center justify-between gap-2 disabled:opacity-50"
+                  aria-haspopup="listbox"
+                  aria-expanded={domainMenuOpen}
+                  className="kc-btn kc-btn-secondary min-w-36"
                 >
-                  <span>{selectedDomain?.label ?? "No domains"}</span>
-                  <ChevronDown className="h-4 w-4" />
+                  <span className="flex-1 text-left font-normal">
+                    {selectedDomain?.label ?? "No domains"}
+                  </span>
+                  <ChevronDown className="h-4 w-4" strokeWidth={1.8} aria-hidden />
                 </button>
                 {domainMenuOpen && domains.length > 0 && (
-                  <div className="absolute bottom-full mb-2 left-0 w-64 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg z-20 overflow-hidden">
-                    <div className="px-3 py-2 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800">
-                      MCP domains
+                  <div className="kc-panel absolute bottom-full left-0 z-20 mb-2 w-64 overflow-hidden">
+                    <div className="kc-panel-head">
+                      <span className="kc-panel-title">MCP domains</span>
                     </div>
-                    {domains.map((d) => (
-                      <button
-                        key={d.id}
-                        type="button"
-                        disabled={!d.active}
-                        onClick={() => {
-                          setDomain(d.id);
-                          setDomainMenuOpen(false);
-                        }}
-                        title={
-                          d.active
-                            ? d.description
-                            : "Disabled for your account. Ask an admin to enable it."
-                        }
-                        className={`w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent ${
-                          d.id === domain ? "bg-blue-50 dark:bg-blue-950" : ""
-                        }`}
-                      >
-                        <div className="text-sm font-medium text-gray-900 dark:text-white flex items-center justify-between">
-                          <span>{d.label}</span>
-                          {!d.active && (
-                            <span className="text-[10px] uppercase tracking-wide text-gray-400">
-                              disabled
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {d.description}
-                        </div>
-                      </button>
-                    ))}
+                    <div role="listbox" aria-label="MCP domains">
+                      {domains.map((d) => (
+                        <button
+                          key={d.id}
+                          type="button"
+                          role="option"
+                          aria-selected={d.id === domain}
+                          disabled={!d.active}
+                          onClick={() => {
+                            setDomain(d.id);
+                            setDomainMenuOpen(false);
+                          }}
+                          title={
+                            d.active
+                              ? d.description
+                              : "Disabled for your account. Ask an admin to enable it."
+                          }
+                          className="kc-row disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <div className="flex items-center justify-between text-sm font-medium text-[var(--kc-ink)]">
+                            <span>{d.label}</span>
+                            {!d.active && (
+                              <span className="kc-mono text-[10px] uppercase tracking-wide text-[var(--kc-muted)]">
+                                disabled
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-[var(--kc-muted)]">
+                            {d.description}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -743,7 +753,7 @@ export default function AssistantPage() {
                       ? `${selectedDomain.label} is disabled for your account`
                       : "No MCP domains available"
                 }
-                className="flex-1 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="kc-input order-first w-full min-w-0 sm:order-none sm:w-auto sm:flex-1"
                 disabled={loading || !selectedDomain || !isSelectedDomainActive}
               />
               <button
@@ -754,9 +764,9 @@ export default function AssistantPage() {
                   !selectedDomain ||
                   !isSelectedDomainActive
                 }
-                className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm flex items-center gap-1.5"
+                className="kc-btn kc-btn-primary"
               >
-                <Send className="h-4 w-4" /> Send
+                <Send className="h-4 w-4" strokeWidth={1.8} aria-hidden /> Send
               </button>
             </div>
             <input
@@ -770,14 +780,20 @@ export default function AssistantPage() {
         </main>
 
         {/* RIGHT: system / tools panel */}
-        <aside className="col-span-12 md:col-span-3 space-y-3">
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
-            <div className="px-3 py-2 text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800 flex items-center gap-1.5">
-              <Layers className="h-3.5 w-3.5" /> MCP servers
+        <aside
+          className="kc-rise col-span-12 space-y-3 md:col-span-3"
+          style={{ "--kc-delay": "0.12s" } as React.CSSProperties}
+        >
+          <div className="kc-panel overflow-hidden">
+            <div className="kc-panel-head">
+              <span className="kc-panel-title inline-flex items-center gap-1.5">
+                <Layers className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden /> MCP
+                servers
+              </span>
             </div>
-            <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+            <ul className="divide-y divide-[var(--kc-line)]">
               {filteredServers.length === 0 && (
-                <li className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400">
+                <li className="px-3 py-4 text-sm text-[var(--kc-muted)]">
                   No MCP servers for this domain.
                 </li>
               )}
@@ -791,26 +807,30 @@ export default function AssistantPage() {
                       : "Disabled for your account. Ask an admin to enable it."
                   }
                 >
-                  <div className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
-                    <span className={s.allowed ? "text-blue-600" : "text-gray-400"}>
+                  <div className="flex items-center gap-2 text-sm font-medium text-[var(--kc-ink)]">
+                    <span
+                      className={
+                        s.allowed
+                          ? "text-[var(--kc-accent)]"
+                          : "text-[var(--kc-muted)]"
+                      }
+                    >
                       {SERVER_ICONS[s.id] ?? <Server className="h-4 w-4" />}
                     </span>
                     <span className="flex-1">{s.name}</span>
                     {!s.allowed && (
-                      <span className="text-[10px] uppercase tracking-wide text-gray-400">
+                      <span className="kc-mono text-[10px] uppercase tracking-wide text-[var(--kc-muted)]">
                         disabled
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  <div className="mb-1 text-xs text-[var(--kc-muted)]">
                     {s.description}
                   </div>
-                  <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5">
+                  <ul className="space-y-0.5 text-xs text-[var(--kc-muted)]">
                     {s.tools.map((t) => (
                       <li key={t.name} className="flex items-center gap-1.5">
-                        <code className="text-[11px] bg-gray-100 dark:bg-gray-800 px-1 rounded">
-                          {t.name}
-                        </code>
+                        <code className="kc-code">{t.name}</code>
                         <CapabilityBadge cap={t.capability} />
                       </li>
                     ))}
@@ -820,11 +840,9 @@ export default function AssistantPage() {
             </ul>
           </div>
 
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-3 text-xs text-gray-600 dark:text-gray-400">
-            <div className="font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Request flow
-            </div>
-            <ol className="list-decimal pl-4 space-y-0.5">
+          <div className="kc-panel p-3 text-xs text-[var(--kc-muted)]">
+            <div className="kc-panel-title mb-1.5">Request flow</div>
+            <ol className="list-decimal space-y-0.5 pl-4">
               <li>UI → Host (auth + session)</li>
               <li>Host → LLM with tool specs</li>
               <li>LLM emits tool calls</li>
@@ -877,21 +895,25 @@ function MessageView({ m }: { m: ChatMessage }) {
   if (m.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] px-3 py-2 rounded-2xl bg-blue-600 text-white text-sm whitespace-pre-wrap">
-          {m.content}
-        </div>
+        <div className="kc-bubble kc-bubble--user">{m.content}</div>
       </div>
     );
   }
   const agent = m.agent ?? m.metadata?.agent ?? "assistant";
   const trace = m.metadata?.trace ?? [];
   return (
-    <div className="flex flex-col items-start gap-2 max-w-[90%]">
-      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-        <Bot className="h-3.5 w-3.5 text-blue-600" />
-        <span className="font-medium uppercase tracking-wide">{agent}</span>
+    <div className="flex max-w-[90%] flex-col items-start gap-2">
+      <div className="flex items-center gap-2 text-xs text-[var(--kc-muted)]">
+        <Bot
+          className="h-3.5 w-3.5 text-[var(--kc-accent)]"
+          strokeWidth={1.8}
+          aria-hidden
+        />
+        <span className="kc-mono font-medium uppercase tracking-wide">
+          {agent}
+        </span>
         {m.metadata?.llm && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">
+          <span className="kc-mono rounded bg-[rgba(31,41,36,0.06)] px-1.5 py-0.5 text-[10px]">
             {m.metadata.llm}
           </span>
         )}
@@ -904,30 +926,29 @@ function MessageView({ m }: { m: ChatMessage }) {
         </div>
       )}
       {scopeDenials(m).map((denial) => (
-        <div
-          key={denial.tool}
-          className="text-xs px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300"
-        >
-          I can&apos;t access <code className="font-mono">{denial.tool}</code> with
-          your current permissions
-          {denial.alternative ? (
-            <>
-              , but I can use{" "}
-              <code className="font-mono">{denial.alternative}</code> instead —
-              try asking for that.
-            </>
-          ) : (
-            ". Ask an admin if you need this."
-          )}
+        <div key={denial.tool} className="kc-note kc-note--accent">
+          <p>
+            I can&apos;t access <code className="kc-code">{denial.tool}</code>{" "}
+            with your current permissions
+            {denial.alternative ? (
+              <>
+                , but I can use{" "}
+                <code className="kc-code">{denial.alternative}</code> instead —
+                try asking for that.
+              </>
+            ) : (
+              ". Ask an admin if you need this."
+            )}
+          </p>
         </div>
       ))}
       {trace.length > 0 && (
-        <details className="text-[11px] text-gray-500 dark:text-gray-400">
+        <details className="text-[11px] text-[var(--kc-muted)]">
           <summary className="cursor-pointer">trace ({trace.length} steps)</summary>
-          <ul className="mt-1 pl-3 space-y-0.5">
+          <ul className="mt-1 space-y-0.5 pl-3">
             {trace.map((t, i) => (
               <li key={i}>
-                <span className="font-mono">
+                <span className="kc-mono">
                   [{t.type}] {t.label}
                 </span>{" "}
                 — {t.summary} · {t.durationMs}ms
@@ -936,8 +957,10 @@ function MessageView({ m }: { m: ChatMessage }) {
           </ul>
         </details>
       )}
-      <div className="px-3 py-2 rounded-2xl bg-gray-100 dark:bg-gray-800 text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">
-        {m.content || <span className="italic text-gray-500">(no reply)</span>}
+      <div className="kc-bubble kc-bubble--agent">
+        {m.content || (
+          <span className="italic text-[var(--kc-muted)]">(no reply)</span>
+        )}
       </div>
     </div>
   );
@@ -946,32 +969,32 @@ function MessageView({ m }: { m: ChatMessage }) {
 function ToolCallCard({ inv }: { inv: ToolInvocation }) {
   const color =
     inv.status === "ok"
-      ? "border-emerald-500 text-emerald-700 dark:text-emerald-400"
+      ? "border-l-[var(--kc-sage)] text-[var(--kc-sage)]"
       : inv.status === "denied"
-        ? "border-amber-500 text-amber-700 dark:text-amber-400"
+        ? "border-l-[var(--kc-accent)] text-[var(--kc-accent)]"
         : inv.status === "error"
-          ? "border-red-500 text-red-700 dark:text-red-400"
-          : "border-gray-300 text-gray-500";
+          ? "border-l-[#8f2f1c] text-[#8f2f1c]"
+          : "border-l-[var(--kc-line)] text-[var(--kc-muted)]";
   return (
-    <details className={`text-xs rounded-lg border-l-4 ${color} bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800`}>
-      <summary className="cursor-pointer px-2.5 py-1.5 flex items-center gap-2">
-        <Wrench className="h-3.5 w-3.5" />
-        <code className="font-mono">
+    <details
+      className={`overflow-hidden rounded-xl border border-l-4 border-[var(--kc-line)] bg-[rgba(255,255,255,0.72)] text-xs ${color}`}
+    >
+      <summary className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5">
+        <Wrench className="h-3.5 w-3.5" strokeWidth={1.8} aria-hidden />
+        <code className="kc-mono">
           {inv.server}.{inv.tool}
         </code>
-        <span className="text-gray-500">· {inv.status}</span>
-        <span className="ml-auto text-gray-400">{inv.latencyMs}ms</span>
+        <span className="text-[var(--kc-muted)]">· {inv.status}</span>
+        <span className="ml-auto text-[var(--kc-muted)]">{inv.latencyMs}ms</span>
       </summary>
-      <div className="px-2.5 py-2 border-t border-gray-200 dark:border-gray-800 space-y-2">
+      <div className="space-y-2 border-t border-[var(--kc-line)] px-2.5 py-2">
         <div>
-          <div className="text-gray-500 mb-0.5">params</div>
-          <pre className="bg-gray-50 dark:bg-gray-950 p-2 rounded overflow-x-auto">
-            {JSON.stringify(inv.params, null, 2)}
-          </pre>
+          <div className="kc-label mb-1">params</div>
+          <pre className="kc-pre">{JSON.stringify(inv.params, null, 2)}</pre>
         </div>
         <div>
-          <div className="text-gray-500 mb-0.5">result</div>
-          <pre className="bg-gray-50 dark:bg-gray-950 p-2 rounded overflow-x-auto max-h-60">
+          <div className="kc-label mb-1">result</div>
+          <pre className="kc-pre max-h-60 overflow-y-auto">
             {JSON.stringify(inv.result, null, 2)}
           </pre>
         </div>
@@ -983,11 +1006,13 @@ function ToolCallCard({ inv }: { inv: ToolInvocation }) {
 function CapabilityBadge({ cap }: { cap: string }) {
   const color =
     cap === "read"
-      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+      ? "bg-[var(--kc-sage-soft)] text-[#3f4d38]"
       : cap === "write"
-        ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400"
-        : "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400";
+        ? "bg-[var(--kc-accent-soft)] text-[#7d4227]"
+        : "bg-[rgba(196,74,48,0.12)] text-[#8f2f1c]";
   return (
-    <span className={`text-[10px] px-1 rounded ${color}`}>{cap}</span>
+    <span className={`rounded px-1 text-[10px] font-semibold ${color}`}>
+      {cap}
+    </span>
   );
 }

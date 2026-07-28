@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth-provider';
 import { setAuthCookie } from '@/lib/auth';
 import { ensureOnboarded, OnboardingError } from '@/lib/onboarding';
+import { acceptInvite, INVITE_COOKIE, InviteError } from '@/lib/invites';
 import { newRequestId, reportError } from '@/lib/errors';
 
 function clientRedirect(to: string): NextResponse {
@@ -54,13 +55,40 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const { tenantId } = await ensureOnboarded({
-      userId: user.id,
-      email: user.email,
-      name: user.name,
-    });
+    // Invite redemption takes precedence over tenant provisioning: a user
+    // arriving via /login?invite=<token> joins the inviter's tenant as an
+    // employee instead of getting a fresh workspace.
+    const inviteToken = req.cookies.get(INVITE_COOKIE)?.value;
+    let tenantId: string;
+    if (inviteToken) {
+      try {
+        ({ tenantId } = await acceptInvite({
+          token: inviteToken,
+          userId: user.id,
+          email: user.email,
+        }));
+      } catch (err) {
+        if (err instanceof InviteError) {
+          const res = NextResponse.redirect(
+            new URL(`/login?error=${err.code}`, req.url),
+          );
+          res.cookies.set(INVITE_COOKIE, '', { maxAge: 0, path: '/' });
+          return res;
+        }
+        throw err;
+      }
+    } else {
+      ({ tenantId } = await ensureOnboarded({
+        userId: user.id,
+        email: user.email,
+        name: user.name,
+      }));
+    }
     setAuthCookie(user.id, tenantId);
-    return clientRedirect('/app');
+    const res = clientRedirect('/app');
+    // One-shot token: never let a spent invite ride along on future sign-ins.
+    res.cookies.set(INVITE_COOKIE, '', { maxAge: 0, path: '/' });
+    return res;
   } catch (err) {
     // A user stuck unable to sign up is exactly the class of bug the error
     // trail exists to catch — never a silent redirect to a generic error.

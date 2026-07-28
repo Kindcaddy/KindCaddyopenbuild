@@ -315,6 +315,23 @@ export async function getValidAccessToken(
  * @param body   - request body (for POST/PUT)
  * @param query  - URLSearchParams for query requests
  */
+/** Typed QBO API failure: carries the HTTP status, the API path, the raw
+ *  Intuit fault body, and the intuit_tid response header (Intuit support's
+ *  correlation id — captured per their production-review recommendation) so
+ *  callers can classify and triage instead of parsing one flat message. */
+export class QboApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly path: string,
+    readonly fault: string,
+    message: string,
+    readonly tid?: string | null,
+  ) {
+    super(message);
+    this.name = 'QboApiError';
+  }
+}
+
 export async function qboApiCall(
   scope: QuickBooksScope,
   method: 'GET' | 'POST' | 'PUT' | 'DELETE',
@@ -349,7 +366,16 @@ export async function qboApiCall(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`QBO API call failed (${res.status} ${method} ${path}): ${text}`);
+    // Intuit support's correlation id — lands in the ErrorReport message so
+    // any production failure can be handed to Intuit support as-is.
+    const tid = res.headers.get('intuit_tid');
+    throw new QboApiError(
+      res.status,
+      path,
+      text.slice(0, 500),
+      `QBO API call failed (${res.status} ${method} ${path})${tid ? ` [intuit_tid: ${tid}]` : ''}: ${text}`,
+      tid,
+    );
   }
 
   return res.json() as Promise<Record<string, unknown>>;

@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
-import { Sparkles, ArrowLeft, Home, Save, Trash2, Plus } from "lucide-react";
+import { Save, Trash2, Plus, Brain, KeyRound, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import UserProfileDropdown from "@/components/UserProfileDropdown";
+import { PageHeader } from "@/components/AppShell";
 
 type MemoryMode = "smart" | "explicit" | "off";
 
@@ -35,6 +34,88 @@ export default function ConfigurationPage() {
   const [newMemory, setNewMemory] = useState("");
   const [memoryErr, setMemoryErr] = useState<string | null>(null);
   const [loadingMemory, setLoadingMemory] = useState(true);
+
+  // ---- BYOK (bring your own key) state ----
+  interface ByokState {
+    configured: boolean;
+    baseUrl: string | null;
+    model: string | null;
+    keyPreview?: string;
+  }
+  const [byok, setByok] = useState<ByokState | null>(null);
+  const [byokKey, setByokKey] = useState("");
+  const [byokBaseUrl, setByokBaseUrl] = useState("");
+  const [byokModel, setByokModel] = useState("");
+  const [byokSaving, setByokSaving] = useState(false);
+  const [byokMsg, setByokMsg] = useState<string | null>(null);
+  const [byokErr, setByokErr] = useState<string | null>(null);
+
+  const loadByok = useCallback(async () => {
+    try {
+      const res = await fetch("/api/me/byok", { cache: "no-store" });
+      if (res.ok) {
+        const j = (await res.json()) as ByokState;
+        setByok(j);
+        if (j.configured) {
+          setByokBaseUrl(j.baseUrl ?? "");
+          setByokModel(j.model ?? "");
+        }
+      }
+    } catch {
+      // Non-fatal: card just shows the form.
+    }
+  }, []);
+
+  const saveByok = useCallback(async () => {
+    if (!byokKey.trim() || byokSaving) return;
+    setByokSaving(true);
+    setByokErr(null);
+    setByokMsg(null);
+    try {
+      const res = await fetch("/api/me/byok", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          apiKey: byokKey.trim(),
+          baseUrl: byokBaseUrl.trim() || undefined,
+          model: byokModel.trim() || undefined,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as ByokState & {
+        message?: string;
+      };
+      if (!res.ok) {
+        throw new Error(j.message ?? `HTTP ${res.status}`);
+      }
+      setByok(j);
+      setByokKey("");
+      setByokMsg("Key saved for this browser session.");
+    } catch (err) {
+      setByokErr(err instanceof Error ? err.message : "Could not save key");
+    } finally {
+      setByokSaving(false);
+    }
+  }, [byokKey, byokBaseUrl, byokModel, byokSaving]);
+
+  const clearByok = useCallback(async () => {
+    setByokSaving(true);
+    setByokErr(null);
+    setByokMsg(null);
+    try {
+      await fetch("/api/me/byok", { method: "DELETE" });
+      setByok({ configured: false, baseUrl: null, model: null });
+      setByokKey("");
+      setByokBaseUrl("");
+      setByokModel("");
+      setByokMsg("Key removed. Chats now use the platform default model.");
+    } finally {
+      setByokSaving(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadByok();
+  }, [loadByok]);
 
   const loadMemory = useCallback(async () => {
     try {
@@ -99,193 +180,257 @@ export default function ConfigurationPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Navigation */}
-      <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Sparkles className="h-8 w-8 text-blue-600" />
-              <span className="ml-2 text-xl font-bold text-gray-900 dark:text-white">
-                KindCaddy
-              </span>
-            </div>
-            <div className="flex items-center space-x-4">
-              <Link
-                href="/app"
-                className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                title="Home"
-              >
-                <Home className="h-5 w-5" />
-              </Link>
-              <UserProfileDropdown />
-            </div>
-          </div>
-        </div>
-      </nav>
+    <div className="kc-container py-8">
+      <PageHeader
+        eyebrow="Configuration"
+        title="Configuration"
+        description="Memory, model provider, and assistant behaviour for your account."
+      />
 
-      {/* Main Content */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Link
-          href="/app"
-          className="inline-flex items-center text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white mb-6"
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Dashboard
-        </Link>
+      {/* Memory (real, persisted) */}
+      <div
+        className="kc-panel kc-rise mb-6 p-5 sm:p-7"
+        style={{ "--kc-delay": "0.06s" } as React.CSSProperties}
+      >
+        <h2 className="kc-display flex items-center gap-2 text-[1.35rem]">
+          <Brain
+            className="h-5 w-5 text-[var(--kc-accent)]"
+            strokeWidth={1.8}
+            aria-hidden
+          />
+          Memory
+        </h2>
+        <p className="kc-subtitle mb-6 mt-2">
+          Control how KindCaddy remembers things about you. Memory is private to
+          your account and never shared.
+        </p>
 
-        {/* Memory (real, persisted) */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 p-8 mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            Memory
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400 mb-6">
-            Control how KindCaddy remembers things about you. Memory is private
-            to your account and never shared.
-          </p>
-
-          <div className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Memory mode
-              </label>
-              <div className="flex gap-2">
-                {(["smart", "explicit", "off"] as MemoryMode[]).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => void changeMode(m)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium capitalize border transition-colors ${
-                      mode === m
-                        ? "bg-blue-600 border-blue-600 text-white"
-                        : "bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:border-blue-400"
-                    }`}
-                  >
-                    {m}
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                {MODE_COPY[mode]}
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Add a memory
-              </label>
-              <div className="flex gap-2">
-                <input
-                  value={newMemory}
-                  onChange={(e) => setNewMemory(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void addMemory();
-                  }}
-                  placeholder="e.g. I prefer concise, bulleted answers"
-                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                />
+        <div className="space-y-6">
+          <div>
+            <label className="kc-label mb-2">Memory mode</label>
+            <div className="flex flex-wrap gap-2">
+              {(["smart", "explicit", "off"] as MemoryMode[]).map((m) => (
                 <button
-                  onClick={() => void addMemory()}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm"
+                  key={m}
+                  onClick={() => void changeMode(m)}
+                  aria-pressed={mode === m}
+                  className={`kc-btn kc-btn--sm capitalize ${
+                    mode === m ? "kc-btn-primary" : "kc-btn-secondary"
+                  }`}
                 >
-                  <Plus className="h-4 w-4" />
-                  Add
+                  {m}
                 </button>
-              </div>
-              {memoryErr && (
-                <p className="text-xs text-red-500 mt-2">{memoryErr}</p>
-              )}
+              ))}
             </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Saved memory {items.length > 0 && `(${items.length})`}
-              </label>
-              {loadingMemory ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
-              ) : items.length === 0 ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Nothing saved yet.
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {items.map((item) => (
-                    <li
-                      key={item.id}
-                      className="flex items-start justify-between gap-3 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm text-gray-900 dark:text-white break-words">
-                          {item.content}
-                        </p>
-                        <span className="inline-block mt-1 text-[10px] uppercase tracking-wide text-gray-400">
-                          {item.source}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => void removeMemory(item.id)}
-                        className="text-gray-400 hover:text-red-500 shrink-0"
-                        title="Delete"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <p className="mt-3 text-xs text-[var(--kc-muted)]">
+              {MODE_COPY[mode]}
+            </p>
           </div>
-        </div>
 
-        {/* Assistant style (demo, not persisted yet) */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 p-8">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-            Assistant style
-          </h2>
-          <p className="text-gray-600 dark:text-gray-400 mb-8">
-            Configure how the chat agent responds.
-          </p>
-
-          <div className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Chat style
-              </label>
+          <div>
+            <label className="kc-label mb-2">Add a memory</label>
+            <div className="flex flex-wrap gap-2">
               <input
-                value={chatStyle}
-                onChange={(e) => setChatStyle(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                placeholder="e.g. concise and friendly"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Frequent questions
-              </label>
-              <textarea
-                value={frequentQuestions}
-                onChange={(e) => setFrequentQuestions(e.target.value)}
-                rows={5}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                placeholder="One frequently asked question per line."
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Demo mode: these style fields are local and not persisted yet.
-              </p>
-              <button
-                onClick={() => {
-                  setSaved(true);
-                  setTimeout(() => setSaved(false), 1800);
+                value={newMemory}
+                onChange={(e) => setNewMemory(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void addMemory();
                 }}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm"
+                placeholder="e.g. I prefer concise, bulleted answers"
+                className="kc-input flex-1"
+              />
+              <button
+                onClick={() => void addMemory()}
+                className="kc-btn kc-btn-primary"
               >
-                <Save className="h-4 w-4" />
-                {saved ? "Saved" : "Save settings"}
+                <Plus className="h-4 w-4" strokeWidth={2} />
+                Add
               </button>
             </div>
+            {memoryErr && (
+              <div className="kc-note kc-note--danger mt-3">{memoryErr}</div>
+            )}
+          </div>
+
+          <div>
+            <label className="kc-label mb-2">
+              Saved memory {items.length > 0 && `(${items.length})`}
+            </label>
+            {loadingMemory ? (
+              <p className="text-sm text-[var(--kc-muted)]">Loading…</p>
+            ) : items.length === 0 ? (
+              <p className="text-sm text-[var(--kc-muted)]">
+                Nothing saved yet.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {items.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex items-start justify-between gap-3 rounded-[14px] border border-[var(--kc-line)] bg-[rgba(255,255,255,0.55)] px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="break-words text-sm text-[var(--kc-ink)]">
+                        {item.content}
+                      </p>
+                      <span className="kc-mono mt-1.5 inline-block text-[10px] uppercase tracking-[0.16em] text-[var(--kc-muted)]">
+                        {item.source}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => void removeMemory(item.id)}
+                      className="shrink-0 rounded-full p-1.5 text-[var(--kc-muted)] transition-colors hover:bg-[rgba(196,74,48,0.08)] hover:text-[#8f2f1c]"
+                      title="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" strokeWidth={1.8} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Model provider (BYOK) */}
+      <div
+        className="kc-panel kc-rise mb-6 p-5 sm:p-7"
+        style={{ "--kc-delay": "0.12s" } as React.CSSProperties}
+      >
+        <h2 className="kc-display flex items-center gap-2 text-[1.35rem]">
+          <KeyRound
+            className="h-5 w-5 text-[var(--kc-accent)]"
+            strokeWidth={1.8}
+          />
+          Model provider (BYOK)
+        </h2>
+        <p className="kc-subtitle mb-6 mt-2">
+          Bring your own API key for chat answers. The key is stored only as
+          an encrypted cookie in this browser session — never in our
+          database — and is cleared when you close the browser. Leave the
+          optional fields blank to use the platform defaults.
+        </p>
+
+        {byok?.configured && (
+          <div className="kc-note kc-note--sage mb-5">
+            <span>
+              Using your key {byok.keyPreview}
+              {byok.model
+                ? ` · model ${byok.model}`
+                : " · platform default model"}
+              {byok.baseUrl ? ` · ${byok.baseUrl}` : ""}
+            </span>
+          </div>
+        )}
+
+        <div className="space-y-4">
+          <div>
+            <label className="kc-label mb-2">API key</label>
+            <input
+              type="password"
+              value={byokKey}
+              onChange={(e) => setByokKey(e.target.value)}
+              placeholder={
+                byok?.configured
+                  ? `Current key ${byok.keyPreview} — enter a new key to replace`
+                  : "sk-or-… (OpenRouter, OpenAI, or any OpenAI-compatible provider)"
+              }
+              autoComplete="off"
+              className="kc-input"
+            />
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <label className="kc-label mb-2">Base URL (optional)</label>
+              <input
+                value={byokBaseUrl}
+                onChange={(e) => setByokBaseUrl(e.target.value)}
+                placeholder="https://openrouter.ai/api/v1"
+                className="kc-input"
+              />
+            </div>
+            <div>
+              <label className="kc-label mb-2">Model (optional)</label>
+              <input
+                value={byokModel}
+                onChange={(e) => setByokModel(e.target.value)}
+                placeholder="anthropic/claude-sonnet-4"
+                className="kc-input"
+              />
+            </div>
+          </div>
+
+          {byokErr && <div className="kc-note kc-note--danger">{byokErr}</div>}
+          {byokMsg && <div className="kc-note kc-note--sage">{byokMsg}</div>}
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => void saveByok()}
+              disabled={byokSaving || !byokKey.trim()}
+              className="kc-btn kc-btn-primary"
+            >
+              {byokSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+              Save key
+            </button>
+            {byok?.configured && (
+              <button
+                onClick={() => void clearByok()}
+                disabled={byokSaving}
+                className="kc-btn kc-btn-secondary"
+              >
+                Remove key
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Assistant style (demo, not persisted yet) */}
+      <div
+        className="kc-panel kc-rise p-5 sm:p-7"
+        style={{ "--kc-delay": "0.18s" } as React.CSSProperties}
+      >
+        <h2 className="kc-display text-[1.35rem]">Assistant style</h2>
+        <p className="kc-subtitle mb-8 mt-2">
+          Configure how the chat agent responds.
+        </p>
+
+        <div className="space-y-6">
+          <div>
+            <label className="kc-label mb-2">Chat style</label>
+            <input
+              value={chatStyle}
+              onChange={(e) => setChatStyle(e.target.value)}
+              className="kc-input"
+              placeholder="e.g. concise and friendly"
+            />
+          </div>
+
+          <div>
+            <label className="kc-label mb-2">Frequent questions</label>
+            <textarea
+              value={frequentQuestions}
+              onChange={(e) => setFrequentQuestions(e.target.value)}
+              rows={5}
+              className="kc-textarea"
+              placeholder="One frequently asked question per line."
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-[var(--kc-muted)]">
+              Demo mode: these style fields are local and not persisted yet.
+            </p>
+            <button
+              onClick={() => {
+                setSaved(true);
+                setTimeout(() => setSaved(false), 1800);
+              }}
+              className="kc-btn kc-btn-primary"
+            >
+              <Save className="h-4 w-4" strokeWidth={2} />
+              {saved ? "Saved" : "Save settings"}
+            </button>
           </div>
         </div>
       </div>

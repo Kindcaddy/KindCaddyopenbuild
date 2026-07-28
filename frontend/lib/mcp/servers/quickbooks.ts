@@ -21,6 +21,7 @@ import { BaseMCPServer, type ToolCallContext, type ToolImpl } from './base';
 import {
   qboApiCall,
   getStoredQuickBooksConnection,
+  QboApiError,
   type QuickBooksScope,
 } from '@/lib/integrations/quickbooks';
 
@@ -32,6 +33,52 @@ function ctxToScope(ctx: ToolCallContext): QuickBooksScope {
     departmentId: ctx.departmentId,
     userId: ctx.userId,
   };
+}
+
+/**
+ * Map QBO API failures to graceful, user-facing tool payloads — or null when
+ * the error is NOT an expected condition (genuine bugs keep the throw path
+ * and land in ErrorReport triage). Two expected conditions:
+ *   - feature_unavailable: the company/QBO version doesn't have the feature
+ *     the query touched (Intuit 400/403 "not supported"-class faults). This
+ *     is the version-change resilience path: a user whose company downgraded
+ *     gets a clear explanation, not a raw Intuit fault.
+ *   - reconnect_required: the API rejected authorization post-refresh (401).
+ * Returned as nested ok:false DATA (the tool itself executed correctly), so
+ * the model can explain the situation without ErrorReport noise.
+ */
+export function classifyQboError(
+  err: unknown,
+): Record<string, JsonValue> | null {
+  if (!(err instanceof QboApiError)) return null;
+
+  if (err.status === 401) {
+    return {
+      ok: false,
+      code: 'reconnect_required',
+      error:
+        'QuickBooks rejected the authorization. Disconnect and reconnect QuickBooks from the Integrations page.',
+    };
+  }
+
+  const VERSION_GATED =
+    /not supported|unsupported|not available|does not exist|no longer available|not entitled|insufficient permission|not authorized/i;
+  if (
+    (err.status === 400 || err.status === 403) &&
+    VERSION_GATED.test(err.fault)
+  ) {
+    return {
+      ok: false,
+      code: 'feature_unavailable',
+      error:
+        'That QuickBooks feature is not available for this company — it may require a different QuickBooks Online version.',
+      detail: err.fault.slice(0, 200),
+      suggested_alternative:
+        'Try a query against customers or invoices — those are available in every QuickBooks Online version.',
+    };
+  }
+
+  return null;
 }
 
 export class QuickBooksMCPServer extends BaseMCPServer {
@@ -159,100 +206,122 @@ export class QuickBooksMCPServer extends BaseMCPServer {
 
   // ─── tool implementations ──────────────────────────────────
 
+  /** Execute fn, converting expected QBO failures into graceful payloads
+   *  (see classifyQboError); unexpected errors rethrow to triage. */
+  private async guard(fn: () => Promise<JsonValue>): Promise<JsonValue> {
+    try {
+      return await fn();
+    } catch (err) {
+      const classified = classifyQboError(err);
+      if (classified) return classified;
+      throw err;
+    }
+  }
+
   private async query(
     args: Record<string, unknown>,
     ctx: ToolCallContext,
   ): Promise<JsonValue> {
-    const q = String(args.query);
-    const params = new URLSearchParams({ query: q });
-    const result = await qboApiCall(ctxToScope(ctx), 'GET', 'query', {
-      query: params,
+    return this.guard(async () => {
+      const q = String(args.query);
+      const params = new URLSearchParams({ query: q });
+      const result = await qboApiCall(ctxToScope(ctx), 'GET', 'query', {
+        query: params,
+      });
+      return result as unknown as JsonValue;
     });
-    return result as unknown as JsonValue;
   }
 
   private async getInvoice(
     args: Record<string, unknown>,
     ctx: ToolCallContext,
   ): Promise<JsonValue> {
-    const invoiceId = String(args.invoiceId);
-    const result = await qboApiCall(
-      ctxToScope(ctx),
-      'GET',
-      `invoice/${invoiceId}`,
-    );
-    return result as unknown as JsonValue;
+    return this.guard(async () => {
+      const invoiceId = String(args.invoiceId);
+      const result = await qboApiCall(
+        ctxToScope(ctx),
+        'GET',
+        `invoice/${invoiceId}`,
+      );
+      return result as unknown as JsonValue;
+    });
   }
 
   private async createInvoice(
     args: Record<string, unknown>,
     ctx: ToolCallContext,
   ): Promise<JsonValue> {
-    const invoice = args.invoice as Record<string, unknown>;
-    const result = await qboApiCall(ctxToScope(ctx), 'POST', 'invoice', {
-      body: JSON.stringify(invoice),
+    return this.guard(async () => {
+      const invoice = args.invoice as Record<string, unknown>;
+      const result = await qboApiCall(ctxToScope(ctx), 'POST', 'invoice', {
+        body: JSON.stringify(invoice),
+      });
+      return result as unknown as JsonValue;
     });
-    return result as unknown as JsonValue;
   }
 
   private async listCustomers(
     args: Record<string, unknown>,
     ctx: ToolCallContext,
   ): Promise<JsonValue> {
-    const filter = args.filter as string | undefined;
-    const maxResults = Math.min(Number(args.maxResults ?? 100), 1000);
+    return this.guard(async () => {
+      const filter = args.filter as string | undefined;
+      const maxResults = Math.min(Number(args.maxResults ?? 100), 1000);
 
-    let q = 'SELECT * FROM Customer';
-    if (filter) {
-      // Escape single quotes for QBO query language.
-      const escaped = filter.replace(/'/g, "\\'");
-      q += ` WHERE DisplayName STARTS WITH '${escaped}'`;
-    }
-    q += ` MAXRESULTS ${maxResults}`;
+      let q = 'SELECT * FROM Customer';
+      if (filter) {
+        // Escape single quotes for QBO query language.
+        const escaped = filter.replace(/'/g, "\\'");
+        q += ` WHERE DisplayName STARTS WITH '${escaped}'`;
+      }
+      q += ` MAXRESULTS ${maxResults}`;
 
-    const params = new URLSearchParams({ query: q });
-    const result = await qboApiCall(ctxToScope(ctx), 'GET', 'query', {
-      query: params,
+      const params = new URLSearchParams({ query: q });
+      const result = await qboApiCall(ctxToScope(ctx), 'GET', 'query', {
+        query: params,
+      });
+      return result as unknown as JsonValue;
     });
-    return result as unknown as JsonValue;
   }
 
   private async syncInvoice(
     args: Record<string, unknown>,
     ctx: ToolCallContext,
   ): Promise<JsonValue> {
-    const invoice = args.invoice as Record<string, unknown>;
-    const docNumber = invoice.DocNumber as string | undefined;
+    return this.guard(async () => {
+      const invoice = args.invoice as Record<string, unknown>;
+      const docNumber = invoice.DocNumber as string | undefined;
 
-    // If DocNumber is provided, try to find an existing invoice to update.
-    if (docNumber) {
-      const escaped = docNumber.replace(/'/g, "\\'");
-      const params = new URLSearchParams({
-        query: `SELECT Id FROM Invoice WHERE DocNumber = '${escaped}' MAXRESULTS 1`,
-      });
-      const existing = await qboApiCall(ctxToScope(ctx), 'GET', 'query', {
-        query: params,
-      });
-      const queryResponse = existing.QueryResponse as
-        | { Invoice?: Array<{ Id: string }> }
-        | undefined;
-      const existingInvoice = queryResponse?.Invoice?.[0];
-
-      if (existingInvoice) {
-        // Update: merge the existing Id into the invoice object.
-        const updatePayload = { ...invoice, Id: existingInvoice.Id, sparse: true };
-        const result = await qboApiCall(ctxToScope(ctx), 'POST', 'invoice', {
-          body: JSON.stringify(updatePayload),
+      // If DocNumber is provided, try to find an existing invoice to update.
+      if (docNumber) {
+        const escaped = docNumber.replace(/'/g, "\\'");
+        const params = new URLSearchParams({
+          query: `SELECT Id FROM Invoice WHERE DocNumber = '${escaped}' MAXRESULTS 1`,
         });
-        return { ok: true, action: 'updated', result: result as unknown as JsonValue };
-      }
-    }
+        const existing = await qboApiCall(ctxToScope(ctx), 'GET', 'query', {
+          query: params,
+        });
+        const queryResponse = existing.QueryResponse as
+          | { Invoice?: Array<{ Id: string }> }
+          | undefined;
+        const existingInvoice = queryResponse?.Invoice?.[0];
 
-    // Create new invoice.
-    const result = await qboApiCall(ctxToScope(ctx), 'POST', 'invoice', {
-      body: JSON.stringify(invoice),
+        if (existingInvoice) {
+          // Update: merge the existing Id into the invoice object.
+          const updatePayload = { ...invoice, Id: existingInvoice.Id, sparse: true };
+          const result = await qboApiCall(ctxToScope(ctx), 'POST', 'invoice', {
+            body: JSON.stringify(updatePayload),
+          });
+          return { ok: true, action: 'updated', result: result as unknown as JsonValue };
+        }
+      }
+
+      // Create new invoice.
+      const result = await qboApiCall(ctxToScope(ctx), 'POST', 'invoice', {
+        body: JSON.stringify(invoice),
+      });
+      return { ok: true, action: 'created', result: result as unknown as JsonValue };
     });
-    return { ok: true, action: 'created', result: result as unknown as JsonValue };
   }
 
   private async getConnectionStatus(

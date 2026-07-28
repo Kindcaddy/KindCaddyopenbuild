@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Sparkles, Briefcase, Users, Home, Plug } from "lucide-react";
-import UserProfileDropdown from "@/components/UserProfileDropdown";
+import { Briefcase, Users, ArrowRight, Lock } from "lucide-react";
 
 interface UserContext {
   user: {
@@ -30,88 +29,107 @@ export default function RoleLandingPage() {
   const isAdmin = userCtx?.role === "admin";
   const inferredRole = isAdmin ? "Admin" : "Employee";
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Navigation */}
-      <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Sparkles className="h-8 w-8 text-blue-600" />
-              <span className="ml-2 text-xl font-bold text-gray-900 dark:text-white">
-                KindCaddy
-              </span>
-            </div>
-            <div className="flex items-center space-x-4">
-              <Link
-                href="/app/integrations"
-                className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                title="Integrations"
-              >
-                <Plug className="h-5 w-5" />
-              </Link>
-              <Link
-                href="/"
-                className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors"
-              >
-                <Home className="h-5 w-5" />
-              </Link>
-              <UserProfileDropdown />
-            </div>
-          </div>
+    <div className="kc-container flex min-h-[calc(100svh-4rem)] items-center py-10">
+      <div className="mx-auto w-full max-w-4xl">
+        <div className="kc-rise text-center">
+          <span className="kc-eyebrow justify-center">Workspace</span>
+          <h1 className="kc-title mt-3">Select workspace role</h1>
+          <p className="kc-subtitle mx-auto mt-2">
+            Role-based access detected from your login email:{" "}
+            <span className="font-semibold text-[var(--kc-accent)]">
+              {inferredRole}
+            </span>
+          </p>
         </div>
-      </nav>
 
-      {/* Main Content - Role Selection */}
-      <div className="flex items-center justify-center min-h-[calc(100vh-4rem)] px-4 sm:px-6 lg:px-8">
-        <div className="w-full max-w-4xl space-y-8">
-          <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-              Select workspace role
-            </h1>
-            <p className="mt-2 text-gray-600 dark:text-gray-400">
-              RBAC detected from login email:{" "}
-              <span className="font-semibold text-blue-600 dark:text-blue-400">
-                {inferredRole}
-              </span>
-            </p>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-8">
-            <Link
-              href="/app/assistant?role=admin"
-              aria-disabled={!isAdmin}
-              className={`group relative w-full sm:w-80 h-64 rounded-3xl overflow-hidden shadow-2xl transition-all duration-300 ${
-                isAdmin
-                  ? "hover:shadow-3xl hover:scale-105"
-                  : "opacity-60 cursor-not-allowed pointer-events-none"
-              }`}
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-purple-500 via-fuchsia-500 to-pink-500 opacity-90" />
-              <div className="relative h-full flex flex-col items-center justify-center p-8 text-white">
-                <Briefcase className="h-16 w-16 mb-4" />
-                <span className="text-3xl font-bold tracking-wide">Admin</span>
-                <span className="mt-3 text-sm bg-white/20 rounded-full px-3 py-1">
-                  {isAdmin ? "Allowed for this login" : "Not available"}
-                </span>
-              </div>
-            </Link>
-
-            <Link
-              href="/app/assistant?role=employee"
-              className="group relative w-full sm:w-80 h-64 rounded-3xl overflow-hidden shadow-2xl hover:shadow-3xl transition-all duration-300 hover:scale-105"
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-blue-500 via-cyan-500 to-teal-500 opacity-90" />
-              <div className="relative h-full flex flex-col items-center justify-center p-8 text-white">
-                <Users className="h-16 w-16 mb-4" />
-                <span className="text-3xl font-bold tracking-wide">Employee</span>
-                <span className="mt-3 text-sm bg-white/20 rounded-full px-3 py-1">
-                  Available for all users
-                </span>
-              </div>
-            </Link>
-          </div>
+        <div className="mt-9 grid gap-5 sm:grid-cols-2">
+          <RoleCard
+            href="/app/assistant?role=admin"
+            icon={Briefcase}
+            title="Admin"
+            body="Full workspace control: access rules, department scope, integrations, and the audit trail."
+            status={isAdmin ? "Allowed for this login" : "Not available"}
+            enabled={isAdmin}
+            delay={0.08}
+          />
+          <RoleCard
+            href="/app/assistant?role=employee"
+            icon={Users}
+            title="Employee"
+            body="Day-to-day assistant scoped to your department, with every tool call recorded."
+            status="Available for all users"
+            enabled
+            delay={0.16}
+          />
         </div>
       </div>
     </div>
+  );
+}
+
+function RoleCard({
+  href,
+  icon: Icon,
+  title,
+  body,
+  status,
+  enabled,
+  delay,
+}: {
+  href: string;
+  icon: typeof Briefcase;
+  title: string;
+  body: string;
+  status: string;
+  enabled: boolean;
+  delay: number;
+}) {
+  const content = (
+    <>
+      <span className="kc-mark h-12 w-12" aria-hidden>
+        <Icon
+          className="h-[22px] w-[22px] text-[var(--kc-accent)]"
+          strokeWidth={1.7}
+        />
+      </span>
+      <h2 className="kc-display mt-4 text-[1.4rem]">{title}</h2>
+      <p className="mt-2 text-[0.9rem] leading-relaxed text-[var(--kc-muted)]">
+        {body}
+      </p>
+      <span
+        className={`kc-chip mt-4 ${enabled ? "kc-chip--sage" : "kc-chip--muted"}`}
+      >
+        {!enabled && <Lock className="h-3 w-3" />}
+        {status}
+      </span>
+      {enabled && (
+        <span className="mt-4 inline-flex items-center gap-1.5 text-[0.86rem] font-bold text-[var(--kc-accent)]">
+          Open assistant
+          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+        </span>
+      )}
+    </>
+  );
+
+  if (!enabled) {
+    return (
+      <div
+        className="kc-surface kc-rise cursor-not-allowed p-6 opacity-65 hover:translate-y-0 hover:shadow-[var(--kc-shadow-soft),inset_0_1px_0_var(--kc-hairline)]"
+        style={{ "--kc-delay": `${delay}s` } as React.CSSProperties}
+        aria-disabled
+      >
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      href={href}
+      className="kc-surface kc-rise group block p-6"
+      style={{ "--kc-delay": `${delay}s` } as React.CSSProperties}
+    >
+      {content}
+    </Link>
   );
 }

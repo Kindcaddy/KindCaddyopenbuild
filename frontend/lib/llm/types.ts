@@ -41,6 +41,18 @@ export interface LLMResponse {
   model: string;
 }
 
+/**
+ * Per-user "bring your own key" override. Session-held only: stored as an
+ * encrypted browser cookie, never in the database. When present on a chat
+ * request it replaces the platform's OPENAI_API_KEY / OPENAI_BASE_URL /
+ * OPENAI_MODEL for that turn.
+ */
+export interface ByokConfig {
+  apiKey: string;
+  baseUrl?: string;
+  model?: string;
+}
+
 export interface LLMChatInput {
   system: string;
   messages: ChatTurn[];

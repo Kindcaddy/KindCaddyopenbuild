@@ -79,6 +79,7 @@ model Tenant {
   resources       Resource[]
   mcpDomains      TenantMcpDomain[]
   mcpDomainAccess UserMcpDomainAccess[]
+  invites         Invite[]
 }
 
 model TenantMcpDomain {
@@ -125,6 +126,7 @@ model Department {
   tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   memberships Membership[]
   resources   Resource[]
+  invites     Invite[]
 }
 
 model Membership {
@@ -143,6 +145,35 @@ model Membership {
   @@unique([userId, tenantId, departmentId])
   @@index([userId])
   @@index([tenantId])
+}
+
+// ---------- Invites ----------
+// An invite link lets any signed-in user bring a teammate into their tenant.
+// The invitee signs up/in through /login?invite=<token>; /api/auth/bridge
+// redeems the token and creates an `employee` Membership in the inviter's
+// tenant + department INSTEAD of provisioning a fresh tenant (see
+// lib/onboarding.ts). One live invite per (tenant, email): re-inviting
+// rotates the token and expiry. Rows are kept after acceptance as an audit
+// trail; acceptedAt double-clicks are idempotent for the same user.
+
+model Invite {
+  id           String    @id @default(cuid())
+  token        String    @unique
+  email        String
+  tenantId     String
+  departmentId String
+  inviterId    String
+  role         String    @default("employee")
+  expiresAt    DateTime
+  acceptedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([inviterId])
 }
 
 model Resource {

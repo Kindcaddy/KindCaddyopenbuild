@@ -13,7 +13,7 @@
  */
 
 import type { AgentStepInput, AgentStepResult } from './base';
-import type { ChatTurn, LLMToolCall } from '../llm/types';
+import type { ByokConfig, ChatTurn, LLMToolCall } from '../llm/types';
 import type { MCPClient } from '../mcp/client';
 import type { JsonValue } from '../mcp/protocol';
 import type { RegisteredTool } from '../mcp/registry';
@@ -25,6 +25,18 @@ import {
 import { safeName, toOpenAITool, unSafeName } from './tool-projection';
 
 export { ProviderMidturnError, ProviderUnreachableError };
+
+/**
+ * The provider rejected the caller's own API key (HTTP 401/403) while BYOK
+ * was active. This is a user configuration problem — mapped to a clean 401
+ * by the chat route, never persisted as a system ErrorReport.
+ */
+export class ByokAuthError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'ByokAuthError';
+  }
+}
 
 /**
  * Last time any provider round succeeded. Lets error reporting escalate
@@ -116,14 +128,20 @@ export class KindCaddyAgent {
         response.toolCalls.length > 0
           ? response.toolCalls
           : parseKindCaddyToolCalls(response.content, availableTools);
+      // The keyword-inference crutch is round-0 only: it exists for models
+      // that cannot emit tool calls at all. On later rounds it would re-fire
+      // on the original user message and force duplicate calls, discarding
+      // the answer the model just composed from real tool results.
       const requestedToolCalls =
         toolCalls.length > 0
           ? toolCalls
-          : inferExplicitKindCaddyToolCalls(turns, availableTools);
+          : round === 0
+            ? inferExplicitKindCaddyToolCalls(turns, availableTools)
+            : [];
       input.trace.push({
         type: 'llm',
         at: new Date().toISOString(),
-        label: `${this.name} · ${this.model()}`,
+        label: `${this.name} · ${this.model(input.byok)}`,
         summary:
           requestedToolCalls.length > 0
             ? `requested ${requestedToolCalls.length} tool call(s)`
@@ -205,11 +223,11 @@ export class KindCaddyAgent {
   ): Promise<{ content: string; toolCalls: LLMToolCall[] }> {
     let res: Response;
     try {
-      res = await fetch(`${this.apiBaseUrl()}/chat/completions`, {
+      res = await fetch(`${this.apiBaseUrl(input.byok)}/chat/completions`, {
         method: 'POST',
-        headers: this.headers(input.requestId),
+        headers: this.headers(input.requestId, input.byok),
         body: JSON.stringify({
-          model: this.model(),
+          model: this.model(input.byok),
           messages: [
             { role: 'system', content: this.systemPrompt(input, tools) },
             ...turns.map(toOpenAIMessage),
@@ -230,12 +248,20 @@ export class KindCaddyAgent {
         );
       }
       throw new ProviderUnreachableError(
-        `LLM provider is unreachable at ${this.apiBaseUrl()}`,
+        `LLM provider is unreachable at ${this.apiBaseUrl(input.byok)}`,
         err,
       );
     }
 
     if (!res.ok) {
+      // With BYOK active a 401/403 is the user's own key being rejected —
+      // surface that distinctly so the UI can point at Configuration.
+      if (input.byok && (res.status === 401 || res.status === 403)) {
+        throw new ByokAuthError(
+          `BYOK key rejected by provider: ${res.status}`,
+          res.status,
+        );
+      }
       throw new ProviderMidturnError(
         `LLM provider API error: ${res.status} ${await res.text()}`,
       );
@@ -274,14 +300,17 @@ export class KindCaddyAgent {
     return lines.join(' ');
   }
 
-  private apiBaseUrl(): string {
-    const base = (process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1')
-      .replace(/\/+$/, '');
+  private apiBaseUrl(byok?: ByokConfig): string {
+    const base = (
+      byok?.baseUrl ??
+      process.env.OPENAI_BASE_URL ??
+      'https://api.openai.com/v1'
+    ).replace(/\/+$/, '');
     return base.endsWith('/v1') ? base : `${base}/v1`;
   }
 
-  private model(): string {
-    return process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
+  private model(byok?: ByokConfig): string {
+    return byok?.model ?? process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
   }
 
   private timeoutMs(): number {
@@ -300,12 +329,17 @@ export class KindCaddyAgent {
     return Number.isFinite(value) && value > 0 ? value : 180000;
   }
 
-  private headers(requestId?: string): Record<string, string> {
+  private headers(
+    requestId?: string,
+    byok?: ByokConfig,
+  ): Record<string, string> {
     const headers: Record<string, string> = {
       'content-type': 'application/json',
     };
-    if (process.env.OPENAI_API_KEY) {
-      headers.authorization = `Bearer ${process.env.OPENAI_API_KEY}`;
+    // BYOK wins over the platform key when the caller supplied their own.
+    const apiKey = byok?.apiKey ?? process.env.OPENAI_API_KEY;
+    if (apiKey) {
+      headers.authorization = `Bearer ${apiKey}`;
     }
     // Correlates provider-side logs with the app-side ErrorReport / response.
     if (requestId) {

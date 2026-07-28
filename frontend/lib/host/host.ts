@@ -24,6 +24,7 @@ import {
 } from '../mcp/domain-catalog';
 import { KindCaddyAgent } from '../agents/agent';
 import type { AgentProgressEvent, AgentTraceEntry } from '../agents/base';
+import type { ByokConfig } from '../llm/types';
 import {
   extractAndSaveSmartMemory,
   getMemoryMode,
@@ -34,8 +35,8 @@ import { SessionManager } from './session';
 export type AgentId = 'kindcaddy';
 
 /** Human-friendly label for the model that answered, recorded on messages. */
-function llmLabel(): string {
-  return process.env.OPENAI_MODEL ?? 'kindcaddy';
+function llmLabel(byok?: ByokConfig): string {
+  return byok?.model ?? process.env.OPENAI_MODEL ?? 'kindcaddy';
 }
 
 export interface ChatRequest {
@@ -45,6 +46,8 @@ export interface ChatRequest {
   agent?: AgentId;
   /** Limit exposed tools to a domain-specific MCP slice. */
   domain?: ChatDomain;
+  /** Per-user BYOK override for this turn (session-held; see lib/byok.ts). */
+  byok?: ByokConfig;
   /** Correlation id from withGuard; rides into traces and error reports. */
   requestId?: string;
 }
@@ -168,12 +171,17 @@ export class Host {
     try {
       const result = await agent.step({
         context: ctx,
-        history: [...history, { role: 'user', content: message }],
+        // history already ends with the just-persisted user message (step 2
+        // wrote it before step 4 loaded history) — appending it again sent
+        // every request to the provider twice and made some models treat the
+        // second copy as an unanswered request (re-call loops).
+        history,
         sessionId: session.id,
         assistantMessageId: assistant.id,
         requestId: req.requestId,
         trace,
         memory,
+        byok: req.byok,
         onEvent,
       });
       finalContent = result.finalContent;
@@ -200,7 +208,7 @@ export class Host {
       metadata: JSON.stringify({
         agent: agentId,
         trace,
-        llm: llmLabel(),
+        llm: llmLabel(req.byok),
         domain: activeDomain.id,
       }),
     });
@@ -222,7 +230,7 @@ export class Host {
         resourceId: session.id,
         metadata: JSON.stringify({
           agent: agentId,
-          llm: llmLabel(),
+          llm: llmLabel(req.byok),
           domain: activeDomain.id,
           toolCalls: trace.filter((t) => t.type === 'tool').length,
         }),

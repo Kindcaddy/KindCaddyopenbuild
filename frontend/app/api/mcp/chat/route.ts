@@ -7,10 +7,12 @@ import { host, type ChatResponse } from '@/lib/host/host';
 import { chatTurnLimiter, chatTurnSemaphore } from '@/lib/rate-limit';
 import { RateLimiter } from '@/lib/mcp/policy';
 import {
+  ByokAuthError,
   ProviderMidturnError,
   ProviderUnreachableError,
   providerOutageSeverity,
 } from '@/lib/agents/agent';
+import { BYOK_COOKIE, decodeByok } from '@/lib/byok';
 import type { ChatDomain } from '@/lib/mcp/domain-catalog';
 
 interface ChatBody {
@@ -48,6 +50,20 @@ async function auditRateDenial(
 }
 
 /**
+ * A BYOK key the provider rejected is a user-configuration problem, not a
+ * system failure: clean 401 with an actionable message, no ErrorReport.
+ * Returns null for any other error so the caller falls through.
+ */
+function mapByokFailure(err: unknown): AppError | null {
+  if (!(err instanceof ByokAuthError)) return null;
+  return new AppError(
+    'byok_key_invalid',
+    'Your saved API key was rejected by the model provider. Update or remove it under Configuration.',
+    401,
+  );
+}
+
+/**
  * Map LLM provider transport failures to a clean 503 with a persisted
  * ErrorReport (Phase 4). Returns null for errors that are not provider-related.
  */
@@ -55,6 +71,8 @@ async function mapProviderFailure(
   err: unknown,
   meta: { requestId: string; context: RequestContext; sessionId?: string },
 ): Promise<AppError | null> {
+  const byok = mapByokFailure(err);
+  if (byok) return byok;
   const code =
     err instanceof ProviderUnreachableError
       ? 'llm_unreachable'
@@ -121,6 +139,8 @@ export const POST = withGuard(async (req: NextRequest, context, { requestId }) =
     message: body.message,
     agent: body.agent,
     domain: body.domain,
+    // Session-held BYOK: replaces the platform provider key for this turn.
+    byok: decodeByok(req.cookies.get(BYOK_COOKIE)?.value) ?? undefined,
     requestId,
   };
 

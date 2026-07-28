@@ -18,6 +18,8 @@
 # misc
 .DS_Store
 *.pem
+# ...but the public AWS RDS CA trust bundle is NOT a secret and must ship with the app
+!certs/rds-global-bundle.pem
 
 # debug
 npm-debug.log*

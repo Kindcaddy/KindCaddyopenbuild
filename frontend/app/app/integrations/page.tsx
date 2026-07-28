@@ -4,8 +4,6 @@ import Link from "next/link";
 import { Suspense, useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  Sparkles,
-  Home,
   ArrowLeft,
   Plug,
   CheckCircle2,
@@ -14,7 +12,7 @@ import {
   RefreshCw,
   AlertCircle,
 } from "lucide-react";
-import UserProfileDropdown from "@/components/UserProfileDropdown";
+import { PageHeader } from "@/components/AppShell";
 
 interface ConnectionStatus {
   connected: boolean;
@@ -26,8 +24,11 @@ export default function IntegrationsPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-          <Loader2 className="h-8 w-8 text-gray-400 animate-spin" />
+        <div className="kc-container flex min-h-[50vh] items-center justify-center py-8">
+          <Loader2
+            className="h-8 w-8 animate-spin text-[var(--kc-accent)]"
+            strokeWidth={1.8}
+          />
         </div>
       }
     >
@@ -109,226 +110,203 @@ function IntegrationsContent() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Navigation */}
-      <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Sparkles className="h-8 w-8 text-blue-600" />
-              <span className="ml-2 text-xl font-bold text-gray-900 dark:text-white">
-                KindCaddy
-              </span>
-            </div>
-            <div className="flex items-center space-x-4">
-              <Link
-                href="/app"
-                className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors"
-                title="Home"
-              >
-                <Home className="h-5 w-5" />
-              </Link>
-              <UserProfileDropdown />
-            </div>
-          </div>
-        </div>
-      </nav>
+    <div className="kc-container py-8">
+      <Link
+        href="/app"
+        className="kc-mono mb-5 inline-flex items-center gap-2 text-[0.72rem] uppercase tracking-[0.16em] text-[var(--kc-muted)] transition-colors hover:text-[var(--kc-accent)]"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+        Back to workspace
+      </Link>
 
-      {/* Main Content */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Link
-          href="/app"
-          className="inline-flex items-center text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white mb-6"
+      <PageHeader
+        eyebrow="Connected systems"
+        title="Integrations"
+        description="Connect external services to power MCP tools. Tokens are encrypted at rest and scoped to your department."
+      />
+
+      {/* Toast */}
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`mb-6 ${
+            toast.type === "success"
+              ? "kc-toast kc-toast--sage"
+              : "kc-toast kc-toast--danger"
+          }`}
         >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Dashboard
-        </Link>
-
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 p-8">
-          <div className="flex items-center gap-3 mb-2">
-            <Plug className="h-8 w-8 text-blue-600" />
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-              Integrations
-            </h1>
-          </div>
-          <p className="text-gray-600 dark:text-gray-400 mb-8">
-            Connect external services to power MCP tools. Tokens are encrypted at
-            rest and scoped to your department.
-          </p>
-
-          {/* Toast */}
-          {toast && (
-            <div
-              className={`mb-6 flex items-center gap-2 rounded-lg p-4 text-sm ${
-                toast.type === "success"
-                  ? "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300"
-                  : "bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300"
-              }`}
-            >
-              {toast.type === "success" ? (
-                <CheckCircle2 className="h-5 w-5 flex-shrink-0" />
-              ) : (
-                <AlertCircle className="h-5 w-5 flex-shrink-0" />
-              )}
-              {toast.message}
-            </div>
+          {toast.type === "success" ? (
+            <CheckCircle2
+              className="h-5 w-5 flex-shrink-0 text-[var(--kc-sage)]"
+              strokeWidth={1.8}
+              aria-hidden
+            />
+          ) : (
+            <AlertCircle
+              className="h-5 w-5 flex-shrink-0 text-[#8f2f1c]"
+              strokeWidth={1.8}
+              aria-hidden
+            />
           )}
+          {toast.message}
+        </div>
+      )}
 
-          {/* QuickBooks Card */}
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-6 mb-4">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                    QuickBooks Online
-                  </h2>
-                  {loading ? (
-                    <Loader2 className="h-5 w-5 text-gray-400 animate-spin" />
-                  ) : qboStatus?.connected ? (
-                    <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900/40 rounded-full px-2 py-0.5">
-                      <CheckCircle2 className="h-3 w-3" />
-                      Connected
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 rounded-full px-2 py-0.5">
-                      <XCircle className="h-3 w-3" />
-                      Not connected
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                  Sync invoices, query customers, and manage accounting data
-                  through the QuickBooks Online API.
-                </p>
-                {qboStatus?.connected && qboStatus.realmId && (
-                  <p className="text-xs text-gray-500 dark:text-gray-500 mb-3">
-                    Company realm ID:{" "}
-                    <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">
-                      {qboStatus.realmId}
-                    </code>
-                    {qboStatus.connectedAt && (
-                      <>
-                        {" "}
-                        · Connected{" "}
-                        {new Date(qboStatus.connectedAt).toLocaleDateString()}
-                      </>
-                    )}
-                  </p>
+      <div className="space-y-4">
+        {/* QuickBooks Card */}
+        <section
+          className="kc-panel kc-rise p-5 sm:p-6"
+          style={{ "--kc-delay": "0.06s" } as React.CSSProperties}
+        >
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                <h2 className="kc-display text-lg text-[var(--kc-ink)]">
+                  QuickBooks Online
+                </h2>
+                {loading ? (
+                  <Loader2
+                    className="h-4 w-4 animate-spin text-[var(--kc-accent)]"
+                    strokeWidth={1.8}
+                    aria-hidden
+                  />
+                ) : qboStatus?.connected ? (
+                  <span className="kc-chip kc-chip--sage">
+                    <CheckCircle2 className="h-3 w-3" strokeWidth={2.2} aria-hidden />
+                    Connected
+                  </span>
+                ) : (
+                  <span className="kc-chip kc-chip--muted">
+                    <XCircle className="h-3 w-3" strokeWidth={2.2} aria-hidden />
+                    Not connected
+                  </span>
                 )}
               </div>
-            </div>
-
-            <div className="flex items-center gap-3 mt-4">
-              {!loading && !qboStatus?.connected && (
-                <a
-                  href="/api/integrations/quickbooks/start"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
-                >
-                  <Plug className="h-4 w-4" />
-                  Connect QuickBooks
-                </a>
-              )}
-              {!loading && qboStatus?.connected && (
-                <>
-                  <button
-                    onClick={handleDisconnect}
-                    disabled={disconnecting}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 text-sm font-medium transition-colors disabled:opacity-50"
-                  >
-                    {disconnecting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <XCircle className="h-4 w-4" />
-                    )}
-                    Disconnect
-                  </button>
-                  <button
-                    onClick={fetchQboStatus}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm font-medium transition-colors"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    Refresh
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Google Calendar Card (existing integration) */}
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                    Google Calendar
-                  </h2>
-                  <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 rounded-full px-2 py-0.5">
-                    Manage via Assistant
-                  </span>
-                </div>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                  Connect Google Calendar to let the agent read and create
-                  calendar events.
+              <p className="mb-3 text-sm text-[var(--kc-muted)]">
+                Sync invoices, query customers, and manage accounting data
+                through the QuickBooks Online API.
+              </p>
+              {qboStatus?.connected && qboStatus.realmId && (
+                <p className="mb-3 text-xs text-[var(--kc-muted)]">
+                  Company realm ID:{" "}
+                  <code className="kc-code">{qboStatus.realmId}</code>
+                  {qboStatus.connectedAt && (
+                    <>
+                      {" "}
+                      · Connected{" "}
+                      {new Date(qboStatus.connectedAt).toLocaleDateString()}
+                    </>
+                  )}
                 </p>
-              </div>
-            </div>
-            <div className="mt-4">
-              <a
-                href="/api/integrations/google/start"
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"
-              >
-                <Plug className="h-4 w-4" />
-                Connect Google Calendar
-              </a>
+              )}
             </div>
           </div>
 
-          {/* MCP Tools Info */}
-          <div className="mt-8 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4">
-            <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-2">
-              Available MCP tools after connecting QuickBooks
-            </h3>
-            <ul className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
-              <li>
-                <code className="bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded">
-                  quickbooks.query
-                </code>{" "}
-                — Run QBO queries (SQL-like)
-              </li>
-              <li>
-                <code className="bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded">
-                  quickbooks.get_invoice
-                </code>{" "}
-                — Fetch invoice by ID
-              </li>
-              <li>
-                <code className="bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded">
-                  quickbooks.create_invoice
-                </code>{" "}
-                — Create a new invoice
-              </li>
-              <li>
-                <code className="bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded">
-                  quickbooks.sync_invoice
-                </code>{" "}
-                — Upsert invoice by DocNumber
-              </li>
-              <li>
-                <code className="bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded">
-                  quickbooks.list_customers
-                </code>{" "}
-                — List/filter customers
-              </li>
-              <li>
-                <code className="bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded">
-                  quickbooks.get_connection_status
-                </code>{" "}
-                — Check connection
-              </li>
-            </ul>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            {!loading && !qboStatus?.connected && (
+              <a
+                href="/api/integrations/quickbooks/start"
+                className="kc-btn kc-btn-primary kc-btn--sm"
+              >
+                <Plug className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                Connect QuickBooks
+              </a>
+            )}
+            {!loading && qboStatus?.connected && (
+              <>
+                <button
+                  onClick={handleDisconnect}
+                  disabled={disconnecting}
+                  className="kc-btn kc-btn-danger kc-btn--sm"
+                >
+                  {disconnecting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.8} aria-hidden />
+                  ) : (
+                    <XCircle className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                  )}
+                  Disconnect
+                </button>
+                <button
+                  onClick={fetchQboStatus}
+                  className="kc-btn kc-btn-secondary kc-btn--sm"
+                >
+                  <RefreshCw className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                  Refresh
+                </button>
+              </>
+            )}
           </div>
-        </div>
+        </section>
+
+        {/* Google Calendar Card (existing integration) */}
+        <section
+          className="kc-panel kc-rise p-5 sm:p-6"
+          style={{ "--kc-delay": "0.12s" } as React.CSSProperties}
+        >
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                <h2 className="kc-display text-lg text-[var(--kc-ink)]">
+                  Google Calendar
+                </h2>
+                <span className="kc-chip kc-chip--muted">
+                  Manage via Assistant
+                </span>
+              </div>
+              <p className="mb-3 text-sm text-[var(--kc-muted)]">
+                Connect Google Calendar to let the agent read and create
+                calendar events.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4">
+            <a
+              href="/api/integrations/google/start"
+              className="kc-btn kc-btn-primary kc-btn--sm"
+            >
+              <Plug className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+              Connect Google Calendar
+            </a>
+          </div>
+        </section>
       </div>
+
+      {/* MCP Tools Info */}
+      <section
+        className="kc-panel kc-rise mt-8 p-5"
+        style={{ "--kc-delay": "0.18s" } as React.CSSProperties}
+      >
+        <h3 className="kc-display mb-3 text-sm text-[var(--kc-ink)]">
+          Available MCP tools after connecting QuickBooks
+        </h3>
+        <ul className="space-y-2 text-xs text-[var(--kc-muted)]">
+          <li>
+            <code className="kc-code">quickbooks.query</code>{" "}
+            — Run QBO queries (SQL-like)
+          </li>
+          <li>
+            <code className="kc-code">quickbooks.get_invoice</code>{" "}
+            — Fetch invoice by ID
+          </li>
+          <li>
+            <code className="kc-code">quickbooks.create_invoice</code>{" "}
+            — Create a new invoice
+          </li>
+          <li>
+            <code className="kc-code">quickbooks.sync_invoice</code>{" "}
+            — Upsert invoice by DocNumber
+          </li>
+          <li>
+            <code className="kc-code">quickbooks.list_customers</code>{" "}
+            — List/filter customers
+          </li>
+          <li>
+            <code className="kc-code">quickbooks.get_connection_status</code>{" "}
+            — Check connection
+          </li>
+        </ul>
+      </section>
     </div>
   );
 }

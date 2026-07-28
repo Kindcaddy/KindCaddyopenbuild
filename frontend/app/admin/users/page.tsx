@@ -1,5 +1,5 @@
-import Link from "next/link";
-import { Sparkles, ArrowLeft, Users, Search, Filter, MoreVertical, Edit, Trash2 } from "lucide-react";
+import { Search, Filter, Edit, Trash2 } from "lucide-react";
+import { PageHeader } from "@/components/AppShell";
 
 export default function UsersManagementPage() {
   const users = [
@@ -10,136 +10,105 @@ export default function UsersManagementPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Navigation */}
-      <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Sparkles className="h-8 w-8 text-blue-600" />
-              <span className="ml-2 text-xl font-bold text-gray-900 dark:text-white">
-                KindCaddy Admin
-              </span>
-            </div>
-            <Link
-              href="/admin"
-              className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-          </div>
+    <div className="kc-container py-8">
+      <PageHeader
+        eyebrow="Admin"
+        title="User Management"
+        description="Manage all platform users and their permissions"
+        actions={
+          <button className="kc-btn kc-btn-primary kc-btn--sm">Add User</button>
+        }
+      />
+
+      {/* Search and Filter */}
+      <div className="mb-6 flex items-center gap-3">
+        <div className="relative flex-1">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--kc-muted)]"
+            strokeWidth={1.8}
+            aria-hidden
+          />
+          <input
+            type="text"
+            placeholder="Search users..."
+            aria-label="Search users"
+            className="kc-input !pl-10"
+          />
         </div>
-      </nav>
+        <button className="kc-btn kc-btn-secondary">
+          <Filter className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+          Filter
+        </button>
+      </div>
 
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-                User Management
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400">
-                Manage all platform users and their permissions
-              </p>
-            </div>
-            <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold transition-colors">
-              Add User
-            </button>
-          </div>
-
-          {/* Search and Filter */}
-          <div className="flex items-center space-x-4 mb-6">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search users..."
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
-            </div>
-            <button className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-              <Filter className="h-5 w-5 mr-2" />
-              Filter
-            </button>
-          </div>
-        </div>
-
-        {/* Users Table */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 dark:bg-gray-700">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    User
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Role
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Joined
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {users.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold mr-3">
-                          {user.name.split(" ").map((n) => n[0]).join("")}
+      {/* Users Table */}
+      <div className="kc-panel overflow-hidden">
+        <div className="kc-scroll overflow-x-auto">
+          <table className="kc-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Joined</th>
+                <th className="!text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((user) => (
+                <tr key={user.id}>
+                  <td className="whitespace-nowrap">
+                    <div className="flex items-center gap-3">
+                      <span className="kc-mark h-10 w-10 text-[0.72rem]" aria-hidden>
+                        {user.name.split(" ").map((n) => n[0]).join("")}
+                      </span>
+                      <div>
+                        <div className="font-medium text-[var(--kc-ink)]">
+                          {user.name}
                         </div>
-                        <div>
-                          <div className="text-sm font-medium text-gray-900 dark:text-white">
-                            {user.name}
-                          </div>
-                          <div className="text-sm text-gray-500 dark:text-gray-400">
-                            {user.email}
-                          </div>
+                        <div className="text-[var(--kc-muted)]">
+                          {user.email}
                         </div>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-2 py-1 text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-300 rounded-full">
-                        {user.role}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`px-2 py-1 text-xs font-medium rounded-full ${
-                          user.status === "Active"
-                            ? "bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-300"
-                            : "bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300"
-                        }`}
+                    </div>
+                  </td>
+                  <td className="whitespace-nowrap">
+                    <span className="kc-chip kc-chip--accent">{user.role}</span>
+                  </td>
+                  <td className="whitespace-nowrap">
+                    <span
+                      className={`kc-chip ${
+                        user.status === "Active"
+                          ? "kc-chip--sage"
+                          : "kc-chip--muted"
+                      }`}
+                    >
+                      {user.status}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap">
+                    <span className="text-[var(--kc-muted)]">{user.joined}</span>
+                  </td>
+                  <td className="whitespace-nowrap text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        aria-label={`Edit ${user.name}`}
+                        className="rounded-lg p-1.5 text-[var(--kc-muted)] transition-colors hover:bg-white/60 hover:text-[var(--kc-accent)]"
                       >
-                        {user.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {user.joined}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex items-center justify-end space-x-2">
-                        <button className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300">
-                          <Edit className="h-5 w-5" />
-                        </button>
-                        <button className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300">
-                          <Trash2 className="h-5 w-5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                        <Edit className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                      </button>
+                      <button
+                        aria-label={`Delete ${user.name}`}
+                        className="rounded-lg p-1.5 text-[var(--kc-muted)] transition-colors hover:bg-white/60 hover:text-[#8f2f1c]"
+                      >
+                        <Trash2 className="h-4 w-4" strokeWidth={1.8} aria-hidden />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

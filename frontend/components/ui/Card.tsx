@@ -1,15 +1,17 @@
-import { ReactNode } from "react";
-
 interface CardProps {
-  children: ReactNode;
+  children: React.ReactNode;
   className?: string;
+  /** Adds the hover lift used by interactive cards. */
+  interactive?: boolean;
 }
 
-export default function Card({ children, className = "" }: CardProps) {
+export default function Card({
+  children,
+  className = "",
+  interactive = false,
+}: CardProps) {
   return (
-    <div
-      className={`bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 ${className}`}
-    >
+    <div className={`${interactive ? "kc-surface" : "kc-panel"} ${className}`}>
       {children}
     </div>
   );
