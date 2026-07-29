@@ -177,10 +177,12 @@ export default function AssistantPage() {
   const [banner, setBanner] = useState<string | null>(null);
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
   const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Tracks whether the user is parked at the bottom of the message list;
+  // auto-scroll only follows new messages when they are.
+  const pinnedToBottomRef = useRef(true);
 
   const loadSessions = useCallback(async () => {
     const r = await fetch("/api/mcp/sessions", { cache: "no-store" });
@@ -246,11 +248,12 @@ export default function AssistantPage() {
     if (currentId) loadMessages(currentId);
   }, [currentId, loadMessages]);
 
+  // Follow new messages only while the user is at the bottom; scrolling up
+  // to read history must not yank them back down on every status flip.
   useEffect(() => {
-    scrollerRef.current?.scrollTo({
-      top: scrollerRef.current.scrollHeight,
-      behavior: "smooth",
-    });
+    const el = scrollerRef.current;
+    if (!el || !pinnedToBottomRef.current) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
 
   // Session resilience (Phase 5.3): the draft survives reloads and network
@@ -470,21 +473,13 @@ export default function AssistantPage() {
   };
 
   /**
-   * Two-tap delete: the first click arms the row (trash icon turns into a
-   * confirm state for a few seconds), the second actually deletes. Deleting
-   * the open session resets the chat pane to the empty state.
+   * One-tap delete: a single click deletes the session immediately (the
+   * previous arm-then-confirm pattern read as "the button is broken" — the
+   * armed state was a barely-visible tint). Deleting the open session resets
+   * the chat pane to the empty state.
    */
-  const requestDeleteSession = (id: string) => {
-    if (deletingId) return;
-    if (confirmDeleteId !== id) {
-      setConfirmDeleteId(id);
-      return;
-    }
-    void deleteSession(id);
-  };
-
   const deleteSession = async (id: string) => {
-    setConfirmDeleteId(null);
+    if (deletingId) return;
     setDeletingId(id);
     try {
       const r = await fetch(`/api/mcp/sessions/${id}`, { method: "DELETE" });
@@ -506,14 +501,6 @@ export default function AssistantPage() {
       setDeletingId(null);
     }
   };
-
-  // The armed delete state auto-cancels so a stray first tap can't be
-  // confirmed accidentally much later.
-  useEffect(() => {
-    if (!confirmDeleteId) return;
-    const timer = setTimeout(() => setConfirmDeleteId(null), 4000);
-    return () => clearTimeout(timer);
-  }, [confirmDeleteId]);
 
   const activeDomains = useMemo(
     () => domains.filter((d) => d.active),
@@ -620,23 +607,11 @@ export default function AssistantPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => requestDeleteSession(s.id)}
+                    onClick={() => deleteSession(s.id)}
                     disabled={deletingId !== null}
-                    aria-label={
-                      confirmDeleteId === s.id
-                        ? `Confirm delete "${s.title}"`
-                        : `Delete "${s.title}"`
-                    }
-                    title={
-                      confirmDeleteId === s.id
-                        ? "Click again to delete this chat"
-                        : "Delete this chat"
-                    }
-                    className={`flex w-9 shrink-0 items-center justify-center transition-colors disabled:opacity-40 ${
-                      confirmDeleteId === s.id
-                        ? "bg-[rgba(143,47,28,0.12)] text-[#8f2f1c]"
-                        : "text-[var(--kc-muted)] hover:bg-[rgba(143,47,28,0.08)] hover:text-[#8f2f1c]"
-                    }`}
+                    aria-label={`Delete "${s.title}"`}
+                    title="Delete this chat"
+                    className="flex w-9 shrink-0 items-center justify-center text-[var(--kc-muted)] transition-colors hover:bg-[rgba(143,47,28,0.08)] hover:text-[#8f2f1c] disabled:opacity-40"
                   >
                     {deletingId === s.id ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -702,6 +677,13 @@ export default function AssistantPage() {
 
           <div
             ref={scrollerRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              // "Near bottom" = within ~2 message heights; anything higher
+              // means the user is reading history, so stop auto-following.
+              pinnedToBottomRef.current =
+                el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+            }}
             className="kc-scroll flex-1 space-y-4 overflow-y-auto px-4 py-4"
           >
             {messages.length === 0 && !loading && (
