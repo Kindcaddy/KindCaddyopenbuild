@@ -1,7 +1,8 @@
 /**
- * Abstract LLM interface. Both the mock provider and a real OpenAI /
- * Anthropic / local-llama adapter implement the same surface so the Host
- * orchestrator is provider-agnostic.
+ * Shared LLM chat model. The agent loop and the wire adapters
+ * (OpenAI-compatible in lib/agents/agent.ts, Anthropic in
+ * lib/llm/anthropic.ts) both speak these types; each adapter translates to
+ * its provider's wire format at the boundary.
  */
 
 export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';
@@ -33,43 +34,21 @@ export interface LLMToolSpec {
   };
 }
 
-export interface LLMResponse {
-  content: string;
-  toolCalls: LLMToolCall[];
-  usage?: { promptTokens?: number; completionTokens?: number };
-  /** Human-friendly label identifying the model that answered. */
-  model: string;
-}
+/** Model providers supported for bring-your-own-key chat. */
+export type ByokProviderId = 'openrouter' | 'openai' | 'anthropic';
 
 /**
- * Per-user "bring your own key" override. Session-held only: stored as an
- * encrypted browser cookie, never in the database. When present on a chat
- * request it replaces the platform's OPENAI_API_KEY / OPENAI_BASE_URL /
- * OPENAI_MODEL for that turn.
+ * Per-user "bring your own key" config. Session-held only: stored as an
+ * encrypted browser cookie, never in the database. Chat is BYOK-only — every
+ * turn runs on the caller's key; there is no platform fallback key.
+ *
+ * `provider` is the user's explicit choice; when absent it is inferred from
+ * the key shape (see lib/llm/byok-provider.ts). `baseUrl` / `model` override
+ * the provider preset when set.
  */
 export interface ByokConfig {
   apiKey: string;
+  provider?: ByokProviderId;
   baseUrl?: string;
   model?: string;
-}
-
-export interface LLMChatInput {
-  system: string;
-  messages: ChatTurn[];
-  tools: LLMToolSpec[];
-  /** Per-request model override (e.g. a cheaper model for memory extraction). */
-  model?: string;
-  /** Per-request timeout; falls back to the provider default when omitted. */
-  timeoutMs?: number;
-  /** Per-request key override — enables session-held BYOK without persistence. */
-  apiKey?: string;
-  /** Per-request base URL override (pairs with apiKey for BYOK). */
-  baseUrl?: string;
-  /** Correlation id; forwarded as x-request-id for cross-log tracing. */
-  requestId?: string;
-}
-
-export interface LLMProvider {
-  name: string;
-  chat(input: LLMChatInput): Promise<LLMResponse>;
 }

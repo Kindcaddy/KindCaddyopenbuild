@@ -1,13 +1,11 @@
 /**
- * BaseAgent: one reasoning step = ask LLM -> execute any tool calls through
- * MCP -> feed results back to LLM -> return the assistant turn. Agents
- * differ only in their system prompt and which tool subset they expose.
+ * Shared agent-step contracts. KindCaddyAgent (lib/agents/agent.ts) is the
+ * sole agent implementation: one reasoning step = ask the LLM -> execute any
+ * tool calls through MCP -> feed results back -> return the assistant turn.
  */
 
 import type { RequestContext } from '../context';
-import type { LLMProvider, ChatTurn, LLMToolSpec, ByokConfig } from '../llm/types';
-import type { MCPClient } from '../mcp/client';
-import type { RegisteredTool } from '../mcp/registry';
+import type { ChatTurn, ByokConfig } from '../llm/types';
 
 export interface AgentStepInput {
   context: RequestContext;
@@ -24,8 +22,11 @@ export interface AgentStepInput {
    * user's memory mode is off or nothing has been saved.
    */
   memory?: string[];
-  /** Per-user BYOK override: replaces the platform provider key/URL/model
-   *  for this turn only. Session-held (encrypted cookie), never persisted. */
+  /**
+   * The caller's own provider key for this turn (session-held encrypted
+   * cookie, never persisted). Chat is BYOK-only: a step without it fails
+   * with ByokMissingError before any provider call.
+   */
   byok?: ByokConfig;
   /** Optional live-progress callback (SSE streaming, Phase 5). */
   onEvent?: (event: AgentProgressEvent) => void;
@@ -53,119 +54,4 @@ export interface AgentTraceEntry {
 export interface AgentStepResult {
   finalContent: string;
   turns: ChatTurn[];
-}
-
-export interface AgentOptions {
-  name: string;
-  systemPrompt: string;
-  /** Predicate selecting which registry tools this agent may use. */
-  toolFilter: (tool: RegisteredTool) => boolean;
-  /** Hard cap on reasoning rounds (LLM -> tools -> LLM -> tools ...). */
-  maxRounds?: number;
-}
-
-export class BaseAgent {
-  readonly name: string;
-  private systemPrompt: string;
-  private toolFilter: (tool: RegisteredTool) => boolean;
-  private maxRounds: number;
-
-  constructor(
-    private llm: LLMProvider,
-    private mcp: MCPClient,
-    private listTools: () => RegisteredTool[],
-    opts: AgentOptions,
-  ) {
-    this.name = opts.name;
-    this.systemPrompt = opts.systemPrompt;
-    this.toolFilter = opts.toolFilter;
-    this.maxRounds = opts.maxRounds ?? 4;
-  }
-
-  async step(input: AgentStepInput): Promise<AgentStepResult> {
-    const available = this.listTools().filter(this.toolFilter);
-    const toolSpecs: LLMToolSpec[] = available.map(toSpec);
-
-    const turns: ChatTurn[] = [...input.history];
-    let finalContent = '';
-
-    for (let round = 0; round < this.maxRounds; round++) {
-      const t0 = Date.now();
-      const resp = await this.llm.chat({
-        system: this.systemPrompt,
-        messages: turns,
-        tools: toolSpecs,
-      });
-      input.trace.push({
-        type: 'llm',
-        at: new Date().toISOString(),
-        label: `${this.name} · ${resp.model}`,
-        summary:
-          resp.toolCalls.length > 0
-            ? `planned ${resp.toolCalls.length} tool call(s)`
-            : 'final reply',
-        durationMs: Date.now() - t0,
-      });
-
-      turns.push({
-        role: 'assistant',
-        name: this.name,
-        content: resp.content,
-        toolCalls: resp.toolCalls,
-      });
-
-      if (resp.toolCalls.length === 0) {
-        finalContent = resp.content || finalContent;
-        break;
-      }
-
-      for (const call of resp.toolCalls) {
-        const tStart = Date.now();
-        const result = await this.mcp.invoke(
-          call.name,
-          call.arguments as Parameters<MCPClient['invoke']>[1],
-          input.context,
-          { sessionId: input.sessionId, messageId: input.assistantMessageId },
-        );
-        input.trace.push({
-          type: 'tool',
-          at: new Date().toISOString(),
-          label: call.name,
-          summary: result.summary,
-          durationMs: Date.now() - tStart,
-        });
-        turns.push({
-          role: 'tool',
-          toolCallId: call.id,
-          content: JSON.stringify({
-            ok: result.ok,
-            summary: result.summary,
-            server: result.server,
-            tool: result.tool,
-            data: result.data,
-            error: result.error,
-          }),
-        });
-      }
-    }
-
-    // Fallback if we exited the loop without a final assistant text.
-    if (!finalContent) {
-      const lastAssist = [...turns].reverse().find((m) => m.role === 'assistant');
-      finalContent = lastAssist?.content || 'Done.';
-    }
-    return { finalContent, turns };
-  }
-}
-
-function toSpec(tool: RegisteredTool): LLMToolSpec {
-  return {
-    name: tool.name,
-    description: tool.description,
-    parameters: {
-      type: 'object',
-      properties: tool.inputSchema.properties,
-      required: tool.inputSchema.required,
-    },
-  };
 }

@@ -1,6 +1,16 @@
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
+import { encodeByok } from '@/lib/byok';
+
+/**
+ * Chat is BYOK-only: requests need a kc_byok cookie or the route 401s with
+ * byok_required before any work. In the test env the crypto helper passes
+ * plaintext JSON through, so this round-trips through decodeByok.
+ */
+const BYOK_COOKIE_HEADER = `kc_byok=${encodeURIComponent(
+  encodeByok({ apiKey: 'guard-test-key-123' }),
+)}`;
 
 jest.mock('next/headers', () => ({
   cookies: jest.fn(),
@@ -99,11 +109,31 @@ describe('/api/mcp/chat guardrails', () => {
     expect(mockHostChat).not.toHaveBeenCalled();
   });
 
+  it('returns 401 byok_required when no key cookie is present', async () => {
+    const { POST } = await loadRoute();
+    const request = new NextRequest('http://localhost:3000/api/mcp/chat', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'http://localhost:3000',
+      },
+      body: JSON.stringify({ message: 'hello' }),
+    });
+
+    const response = await POST(request);
+    const data = await response.json();
+    expect(response.status).toBe(401);
+    expect(data.error).toBe('byok_required');
+    expect(data.message).toMatch(/Configuration/);
+    expect(mockHostChat).not.toHaveBeenCalled();
+  });
+
   it('returns 429 with Retry-After after exhausting the chat-turn limiter', async () => {
     const { POST } = await loadRoute();
     const headers = {
       'content-type': 'application/json',
       origin: 'http://localhost:3000',
+      cookie: BYOK_COOKIE_HEADER,
     };
 
     for (let i = 0; i < 10; i += 1) {
@@ -140,6 +170,7 @@ describe('/api/mcp/chat guardrails', () => {
       headers: {
         'content-type': 'application/json',
         origin: 'http://localhost:3000',
+        cookie: BYOK_COOKIE_HEADER,
       },
       body: JSON.stringify({ message: 'hello' }),
     });

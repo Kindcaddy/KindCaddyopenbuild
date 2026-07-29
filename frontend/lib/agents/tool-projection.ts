@@ -12,6 +12,24 @@
  */
 
 import type { RegisteredTool } from '../mcp/registry';
+import type { LLMToolSpec } from '../llm/types';
+
+/**
+ * Project a RegisteredTool into the provider-neutral spec. Only
+ * name/description/parameters are emitted — never the gate-side fields.
+ * The Anthropic adapter (lib/llm/anthropic.ts) consumes this shape.
+ */
+export function toToolSpec(tool: RegisteredTool): LLMToolSpec {
+  return {
+    name: tool.name,
+    description: tool.description,
+    parameters: {
+      type: 'object',
+      properties: tool.inputSchema.properties,
+      required: tool.inputSchema.required,
+    },
+  };
+}
 
 /**
  * Project a RegisteredTool into the OpenAI tool spec sent on the wire. Only

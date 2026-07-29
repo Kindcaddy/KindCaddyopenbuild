@@ -58,8 +58,6 @@ load_full_secrets() {
   : "${RESOURCE_ENCRYPTION_KEY:?missing RESOURCE_ENCRYPTION_KEY (run $0 --gen-secrets)}"
   : "${AUTH_RESEND_KEY:?missing AUTH_RESEND_KEY (from resend.com)}"
   : "${EMAIL_FROM:?missing EMAIL_FROM}"
-  : "${OPENAI_API_KEY:?missing OPENAI_API_KEY (from openrouter.ai/keys)}"
-  OPENAI_MODEL="${OPENAI_MODEL:-anthropic/claude-sonnet-4}"
 }
 
 sshc() {
@@ -129,11 +127,9 @@ AUTH_SECRET="${AUTH_SECRET}"
 AUTH_TRUST_HOST="true"
 AUTH_URL="https://app.kindcaddy.com"
 AUTH_RESEND_KEY="${AUTH_RESEND_KEY}"
+AUTH_ALLOW_EMAIL_LINKING="true"
 EMAIL_FROM="${EMAIL_FROM}"
 RESOURCE_ENCRYPTION_KEY="${RESOURCE_ENCRYPTION_KEY}"
-OPENAI_API_KEY="${OPENAI_API_KEY}"
-OPENAI_BASE_URL="https://openrouter.ai/api/v1"
-OPENAI_MODEL="${OPENAI_MODEL}"
 LLM_TIMEOUT_MS="60000"
 LLM_MAX_TOOL_ROUNDS="5"
 LLM_TURN_BUDGET_MS="180000"
@@ -148,6 +144,15 @@ QBO_CLIENT_ID="${QBO_CLIENT_ID}"
 QBO_CLIENT_SECRET="${QBO_CLIENT_SECRET:-}"
 QBO_REDIRECT_URI="https://app.kindcaddy.com/api/integrations/quickbooks/callback"
 QBO_ENV="${QBO_ENV:-production}"
+EOF
+  fi
+  # Google Calendar is optional: rendered only when the OAuth client keys are
+  # present in credentials.env. The redirect URI is not secret.
+  if [ -n "${GOOGLE_CLIENT_ID:-}" ] && [ "${GOOGLE_CLIENT_ID}" != "REPLACE_ME" ]; then
+    cat >> "$1" <<EOF
+GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID}"
+GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-}"
+GOOGLE_REDIRECT_URI="https://app.kindcaddy.com/api/integrations/google/callback"
 EOF
   fi
 }

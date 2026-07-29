@@ -12,7 +12,8 @@
  */
 
 import { db } from '../db';
-import { getLLM } from '../llm';
+import type { ByokConfig } from '../llm/types';
+import { completeOnce, resolveByok } from '../llm/byok-provider';
 import { newRequestId, reportError } from '../errors';
 
 /**
@@ -157,38 +158,36 @@ export async function deleteMemory(ctx: MemoryScope, id: string): Promise<boolea
  * -completed turn and save them silently. Best-effort by design — it must never
  * take the request down, so all failures are swallowed into an ErrorReport.
  *
- * Runs only when a real provider is configured (the mock provider cannot
- * extract). Uses a cheap model override when OPENAI_MEMORY_MODEL is set.
+ * Runs on the SAME BYOK key the chat turn used (chat is BYOK-only), one cheap
+ * tool-free round via completeOnce. Without a key there is nothing to call.
  */
 export async function extractAndSaveSmartMemory(
   ctx: MemoryScope,
-  input: { userMessage: string; assistantReply: string; requestId?: string },
+  input: {
+    userMessage: string;
+    assistantReply: string;
+    requestId?: string;
+    byok?: ByokConfig;
+  },
 ): Promise<void> {
-  if (!process.env.OPENAI_API_KEY) return; // mock provider: nothing to extract
+  if (!input.byok) return; // no key, no extraction
   try {
-    const llm = getLLM();
     const timeoutMs = Number(process.env.LLM_MEMORY_TIMEOUT_MS ?? 15000);
-    const resp = await llm.chat({
+    const content = await completeOnce(resolveByok(input.byok), {
       system: EXTRACTION_SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            'Conversation turn to analyze:',
-            `USER: ${input.userMessage}`,
-            `ASSISTANT: ${input.assistantReply}`,
-            '',
-            'Return the JSON array now.',
-          ].join('\n'),
-        },
-      ],
-      tools: [],
-      model: process.env.OPENAI_MEMORY_MODEL || undefined,
+      prompt: [
+        'Conversation turn to analyze:',
+        `USER: ${input.userMessage}`,
+        `ASSISTANT: ${input.assistantReply}`,
+        '',
+        'Return the JSON array now.',
+      ].join('\n'),
       timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 15000,
+      maxTokens: 800,
       requestId: input.requestId,
     });
 
-    const candidates = parseCandidates(resp.content).slice(0, SMART_MAX_PER_TURN);
+    const candidates = parseCandidates(content).slice(0, SMART_MAX_PER_TURN);
     for (const candidate of candidates) {
       await saveMemory(ctx, { content: candidate, source: 'smart' });
     }

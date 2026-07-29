@@ -3,13 +3,14 @@ import { decodeByok, encodeByok } from '@/lib/byok';
 /**
  * BYOK cookie codec. Round-trips work whether or not RESOURCE_ENCRYPTION_KEY
  * is set (the crypto helper passes plaintext through in dev/test), and every
- * malformed input degrades to null so a bad cookie falls back to the
- * platform key instead of breaking chat.
+ * malformed input degrades to null so a bad cookie becomes a clean
+ * `byok_required` instead of breaking chat.
  */
 describe('BYOK cookie codec', () => {
   it('round-trips a full config', () => {
     const config = {
-      apiKey: 'sk-test-1234567890abcdef',
+      apiKey: 'sk-tes...cdef',
+      provider: 'openrouter' as const,
       baseUrl: 'https://openrouter.ai/api/v1',
       model: 'anthropic/claude-sonnet-4',
     };
@@ -17,9 +18,22 @@ describe('BYOK cookie codec', () => {
   });
 
   it('round-trips a key-only config', () => {
-    const decoded = decodeByok(encodeByok({ apiKey: 'sk-only-key-98765' }));
+    const decoded = decodeByok(encodeByok({ apiKey: 'sk-abc...xyz' }));
     expect(decoded).toEqual({
-      apiKey: 'sk-only-key-98765',
+      apiKey: 'sk-abc...xyz',
+      provider: undefined,
+      baseUrl: undefined,
+      model: undefined,
+    });
+  });
+
+  it('drops an unrecognized provider but keeps the key', () => {
+    const decoded = decodeByok(
+      JSON.stringify({ apiKey: 'sk-abc...xyz', provider: 'not-a-provider' }),
+    );
+    expect(decoded).toEqual({
+      apiKey: 'sk-abc...xyz',
+      provider: undefined,
       baseUrl: undefined,
       model: undefined,
     });

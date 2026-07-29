@@ -1,15 +1,17 @@
 /**
  * KindCaddyAgent: the primary Agents-layer runtime for KindCaddy.
  *
- * User turns are sent to an OpenAI-compatible provider (OpenRouter in
- * production; any /v1/chat/completions endpoint works). KindCaddy exposes its
- * MCP tools to the model using OpenAI-style function specs; when the model asks
- * for a tool, KindCaddy executes it locally through the MCP client so policy,
- * tenancy, persistence, and audit stay in this app.
+ * Chat is BYOK-only: every turn runs on the caller's own provider key
+ * (session-held cookie; see lib/byok.ts). Two wire formats are supported —
+ * OpenAI-compatible chat/completions (OpenRouter, OpenAI, local endpoints)
+ * and the Anthropic Messages API (lib/llm/anthropic.ts) — selected by the
+ * resolved provider for the key. KindCaddy exposes its MCP tools to the
+ * model using function specs; when the model asks for a tool, KindCaddy
+ * executes it locally through the MCP client so policy, tenancy,
+ * persistence, and audit stay in this app.
  *
- * This replaces the retired external Hermes service. The agent loop, tool
- * projection, JSON fallback, turn budget, and streaming are unchanged — only
- * the transport (self-hosted Hermes -> direct provider call) moved.
+ * This replaces the retired external Hermes service and the later platform
+ * fallback key: there is no server-held LLM credential at all.
  */
 
 import type { AgentStepInput, AgentStepResult } from './base';
@@ -21,20 +23,37 @@ import { newRequestId, reportError } from '../errors';
 import {
   ProviderMidturnError,
   ProviderUnreachableError,
-} from '../llm/openai';
-import { safeName, toOpenAITool, unSafeName } from './tool-projection';
+} from '../llm/errors';
+import {
+  resolveByok,
+  type ResolvedByok,
+} from '../llm/byok-provider';
+import { AnthropicHttpError, anthropicChat } from '../llm/anthropic';
+import { safeName, toOpenAITool, toToolSpec, unSafeName } from './tool-projection';
 
 export { ProviderMidturnError, ProviderUnreachableError };
 
 /**
- * The provider rejected the caller's own API key (HTTP 401/403) while BYOK
- * was active. This is a user configuration problem — mapped to a clean 401
- * by the chat route, never persisted as a system ErrorReport.
+ * The provider rejected the caller's own API key (HTTP 401/403). This is a
+ * user configuration problem — mapped to a clean 401 by the chat route,
+ * never persisted as a system ErrorReport.
  */
 export class ByokAuthError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
     this.name = 'ByokAuthError';
+  }
+}
+
+/**
+ * A chat turn was attempted without any BYOK key. Chat is BYOK-only, so
+ * this is a user configuration problem — mapped to a clean 401
+ * (`byok_required`) by the chat route, never an ErrorReport.
+ */
+export class ByokMissingError extends Error {
+  constructor() {
+    super('No API key configured — add one under Configuration.');
+    this.name = 'ByokMissingError';
   }
 }
 
@@ -84,6 +103,10 @@ export class KindCaddyAgent {
 
   async step(input: AgentStepInput): Promise<AgentStepResult> {
     const availableTools = this.listTools();
+    // BYOK-only: no key, no turn. Fail before any work so the chat route can
+    // answer with an actionable 401 instead of a provider transport error.
+    if (!input.byok) throw new ByokMissingError();
+    const resolvedByok = resolveByok(input.byok);
     const turns: ChatTurn[] = [...input.history];
     let finalContent = '';
     const turnStartedAt = Date.now();
@@ -123,7 +146,7 @@ export class KindCaddyAgent {
 
       input.onEvent?.({ kind: 'thinking' });
       const t0 = Date.now();
-      const response = await this.chat(turns, availableTools, input);
+      const response = await this.chat(turns, availableTools, input, resolvedByok);
       const toolCalls =
         response.toolCalls.length > 0
           ? response.toolCalls
@@ -141,7 +164,7 @@ export class KindCaddyAgent {
       input.trace.push({
         type: 'llm',
         at: new Date().toISOString(),
-        label: `${this.name} · ${this.model(input.byok)}`,
+        label: `${this.name} · ${resolvedByok.model}`,
         summary:
           requestedToolCalls.length > 0
             ? `requested ${requestedToolCalls.length} tool call(s)`
@@ -220,18 +243,55 @@ export class KindCaddyAgent {
     turns: ChatTurn[],
     tools: RegisteredTool[],
     input: AgentStepInput,
+    byok: ResolvedByok,
   ): Promise<{ content: string; toolCalls: LLMToolCall[] }> {
+    const system = this.systemPrompt(input, tools);
+
+    // ---- Anthropic Messages API wire format. ----
+    if (byok.wire === 'anthropic') {
+      try {
+        const res = await anthropicChat({
+          baseUrl: byok.baseUrl,
+          apiKey: byok.apiKey,
+          model: byok.model,
+          system,
+          turns: [...turns, ...buildToolResultNudge(turns.at(-1))],
+          tools: tools.map(toToolSpec),
+          timeoutMs: this.timeoutMs(),
+          requestId: input.requestId,
+        });
+        lastProviderOkAt = Date.now();
+        return { content: res.content, toolCalls: res.toolCalls };
+      } catch (err) {
+        // The key on file is the caller's own — a 401/403 is their config
+        // problem, surfaced distinctly so the UI can point at Configuration.
+        if (err instanceof AnthropicHttpError) {
+          throw new ByokAuthError(
+            `BYOK key rejected by provider: ${err.status}`,
+            err.status,
+          );
+        }
+        throw err;
+      }
+    }
+
+    // ---- OpenAI-compatible chat/completions wire format. ----
     let res: Response;
     try {
-      res = await fetch(`${this.apiBaseUrl(input.byok)}/chat/completions`, {
+      res = await fetch(`${byok.baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: this.headers(input.requestId, input.byok),
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${byok.apiKey}`,
+          // Correlates provider-side logs with the app-side response.
+          ...(input.requestId ? { 'x-request-id': input.requestId } : {}),
+        },
         body: JSON.stringify({
-          model: this.model(input.byok),
+          model: byok.model,
           messages: [
-            { role: 'system', content: this.systemPrompt(input, tools) },
+            { role: 'system', content: system },
             ...turns.map(toOpenAIMessage),
-            ...buildToolResultNudge(turns.at(-1)),
+            ...buildToolResultNudge(turns.at(-1)).map(toOpenAIMessage),
           ],
           tools: tools.map(toOpenAITool),
           tool_choice: tools.length > 0 ? 'auto' : undefined,
@@ -248,15 +308,13 @@ export class KindCaddyAgent {
         );
       }
       throw new ProviderUnreachableError(
-        `LLM provider is unreachable at ${this.apiBaseUrl(input.byok)}`,
+        `LLM provider is unreachable at ${byok.baseUrl}`,
         err,
       );
     }
 
     if (!res.ok) {
-      // With BYOK active a 401/403 is the user's own key being rejected —
-      // surface that distinctly so the UI can point at Configuration.
-      if (input.byok && (res.status === 401 || res.status === 403)) {
+      if (res.status === 401 || res.status === 403) {
         throw new ByokAuthError(
           `BYOK key rejected by provider: ${res.status}`,
           res.status,
@@ -300,19 +358,6 @@ export class KindCaddyAgent {
     return lines.join(' ');
   }
 
-  private apiBaseUrl(byok?: ByokConfig): string {
-    const base = (
-      byok?.baseUrl ??
-      process.env.OPENAI_BASE_URL ??
-      'https://api.openai.com/v1'
-    ).replace(/\/+$/, '');
-    return base.endsWith('/v1') ? base : `${base}/v1`;
-  }
-
-  private model(byok?: ByokConfig): string {
-    return byok?.model ?? process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
-  }
-
   private timeoutMs(): number {
     const value = Number(process.env.LLM_TIMEOUT_MS ?? 60000);
     return Number.isFinite(value) && value > 0 ? value : 60000;
@@ -328,25 +373,6 @@ export class KindCaddyAgent {
     const value = Number(process.env.LLM_TURN_BUDGET_MS ?? 180000);
     return Number.isFinite(value) && value > 0 ? value : 180000;
   }
-
-  private headers(
-    requestId?: string,
-    byok?: ByokConfig,
-  ): Record<string, string> {
-    const headers: Record<string, string> = {
-      'content-type': 'application/json',
-    };
-    // BYOK wins over the platform key when the caller supplied their own.
-    const apiKey = byok?.apiKey ?? process.env.OPENAI_API_KEY;
-    if (apiKey) {
-      headers.authorization = `Bearer ${apiKey}`;
-    }
-    // Correlates provider-side logs with the app-side ErrorReport / response.
-    if (requestId) {
-      headers['x-request-id'] = requestId;
-    }
-    return headers;
-  }
 }
 
 /**
@@ -356,7 +382,7 @@ export class KindCaddyAgent {
  * must answer from the data and must not invent a permission refusal. Only a
  * genuine denial (`ok:false`) should be explained as a permission problem.
  */
-function buildToolResultNudge(last: ChatTurn | undefined): Array<Record<string, unknown>> {
+function buildToolResultNudge(last: ChatTurn | undefined): ChatTurn[] {
   if (!last || last.role !== 'tool') return [];
   let ok = true;
   try {

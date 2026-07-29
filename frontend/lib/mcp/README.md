@@ -191,15 +191,18 @@ Then open `/app/assistant` and chat normally. The web app sends turns to
 `ExternalHermesAgent`, which calls the downloaded Hermes Gateway and lets Hermes
 choose from the KindCaddy MCP tools.
 
+> **Historical note:** the Hermes gateway setup above is retired — the app
+> now calls model providers directly. The section is kept for reference only.
+
 ## Swapping in real providers
 
-- **Real LLM**: set `OPENAI_API_KEY` (+ optionally `OPENAI_BASE_URL`,
-  `OPENAI_MODEL`). The same adapter also supports local OpenAI-compatible
-  endpoints (for example local Gemma-hosted servers).
+- **Real LLM**: chat is BYOK-only — each user enters an OpenRouter, OpenAI,
+  or Anthropic key under `/app/configuration` (encrypted session cookie;
+  auto-detected provider, optional custom base URL for local
+  OpenAI-compatible endpoints such as a local Gemma-hosted server). There is
+  no platform env key.
 - **Real NetSuite / QuickBooks**: replace the in-memory store in
   `lib/mcp/servers/{netsuite,quickbooks}.ts` with REST client calls.
   The tool descriptors, policy layer, and orchestrator stay unchanged.
 - **Real Files**: swap `FilesMCPServer`'s `Map` for S3 / Drive /
   SharePoint clients.
-- **Hermes Agent service**: use the setup above. The agent accepts
-  `HERMES_AGENT_BASE_URL` with or without the `/v1` suffix.

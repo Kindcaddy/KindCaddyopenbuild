@@ -25,6 +25,7 @@ import {
 import { KindCaddyAgent } from '../agents/agent';
 import type { AgentProgressEvent, AgentTraceEntry } from '../agents/base';
 import type { ByokConfig } from '../llm/types';
+import { resolveByok } from '../llm/byok-provider';
 import {
   extractAndSaveSmartMemory,
   getMemoryMode,
@@ -36,7 +37,8 @@ export type AgentId = 'kindcaddy';
 
 /** Human-friendly label for the model that answered, recorded on messages. */
 function llmLabel(byok?: ByokConfig): string {
-  return byok?.model ?? process.env.OPENAI_MODEL ?? 'kindcaddy';
+  // BYOK-only: the answering model is always the caller's resolved model.
+  return byok ? resolveByok(byok).model : 'kindcaddy';
 }
 
 export interface ChatRequest {
@@ -249,6 +251,7 @@ export class Host {
         userMessage: message,
         assistantReply: finalContent,
         requestId: req.requestId,
+        byok: req.byok,
       });
     }
 

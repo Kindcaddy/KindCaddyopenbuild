@@ -24,7 +24,7 @@ Kindcaddy is a production AI assistant platform that:
 
 - Node.js 18+
 - PostgreSQL 14+ (or use the Dockerfile for a containerized deployment)
-- An OpenAI-compatible API key (OpenRouter, OpenAI, or local llama.cpp/Ollama)
+- A model-provider API key per user (OpenRouter, OpenAI, or Anthropic) — entered in the app, not in `.env`
 
 ### Setup
 
@@ -32,7 +32,7 @@ Kindcaddy is a production AI assistant platform that:
 git clone https://github.com/Kindcaddy/KindCaddyopenbuild.git
 cd KindCaddyopenbuild/frontend
 cp .env.example .env
-# Edit .env: set DATABASE_URL, AUTH_SECRET, RESOURCE_ENCRYPTION_KEY, OPENAI_API_KEY
+# Edit .env: set DATABASE_URL, AUTH_SECRET, RESOURCE_ENCRYPTION_KEY
 npm ci
 npm run db:reset          # creates schema + seeds demo users, tenants, departments
 npm run dev               # http://localhost:3000
@@ -44,23 +44,19 @@ Sign in at `/login` with the demo account (dev-only, gated behind `NODE_ENV !== 
 |------|-------|----------|
 | Demo user | `demo@kindcaddy.com` | `demo123` |
 
-### Optional: BYOK (Bring Your Own Key)
+### Model providers: BYOK-only
 
-Users can supply their own API key via `/app/configuration`. The key is encrypted (AES-256-GCM) and stored only in an httpOnly session cookie — it never touches the database. When active, the user's key, base URL, and model override the platform defaults for that session only.
+Chat runs entirely on per-user keys entered at `/app/configuration` — there is no platform/shared LLM key in `.env`. The key is encrypted (AES-256-GCM) and stored only in an httpOnly session cookie — it never touches the database and is cleared when the browser closes.
 
-### Optional: Local Model
+Supported out of the box (auto-detected from the key shape, or picked explicitly):
 
-Set `OPENAI_BASE_URL` to any OpenAI-compatible endpoint:
+| Provider | Key shape | Default model |
+|----------|-----------|---------------|
+| OpenRouter | `sk-or-v1-…` | `anthropic/claude-sonnet-4` |
+| OpenAI | `sk-…` | `gpt-4o-mini` |
+| Anthropic (Claude) | `sk-ant-…` | `claude-sonnet-4-5` |
 
-```bash
-# OpenRouter (production default)
-OPENAI_BASE_URL=https://openrouter.ai/api/v1
-OPENAI_MODEL=anthropic/claude-3.5-sonnet
-
-# Local llama.cpp / Ollama
-OPENAI_BASE_URL=http://127.0.0.1:8080/v1
-OPENAI_MODEL=local-model
-```
+Optional per-user overrides: custom base URL (any OpenAI-compatible endpoint, e.g. local llama.cpp/Ollama at `http://127.0.0.1:8080/v1`) and custom model id.
 
 ---
 

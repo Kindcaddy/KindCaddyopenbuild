@@ -259,6 +259,9 @@ describe('Host.chat() Procurement-vs-Finance P&L scope denial', () => {
     const res = await host.chat(ctx, {
       message: 'Show me the company P&L for last quarter.',
       domain: 'agent',
+      // BYOK-only chat: the stub fetch answers regardless of key, but the
+      // agent refuses to run without one.
+      byok: { apiKey: 'test-stub-key' },
     });
 
     // (a) The denied call was persisted with status='denied'.

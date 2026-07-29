@@ -3,6 +3,12 @@
 import { Save, Trash2, Plus, Brain, KeyRound, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/AppShell";
+import {
+  PROVIDER_PRESETS,
+  type ByokProviderId,
+} from "@/lib/llm/byok-provider";
+
+type ProviderChoice = "auto" | ByokProviderId;
 
 type MemoryMode = "smart" | "explicit" | "off";
 
@@ -38,12 +44,17 @@ export default function ConfigurationPage() {
   // ---- BYOK (bring your own key) state ----
   interface ByokState {
     configured: boolean;
+    provider?: ByokProviderId;
+    providerLabel?: string;
+    providerExplicit?: ByokProviderId | null;
     baseUrl: string | null;
     model: string | null;
+    resolvedModel?: string;
     keyPreview?: string;
   }
   const [byok, setByok] = useState<ByokState | null>(null);
   const [byokKey, setByokKey] = useState("");
+  const [byokProvider, setByokProvider] = useState<ProviderChoice>("auto");
   const [byokBaseUrl, setByokBaseUrl] = useState("");
   const [byokModel, setByokModel] = useState("");
   const [byokSaving, setByokSaving] = useState(false);
@@ -57,6 +68,7 @@ export default function ConfigurationPage() {
         const j = (await res.json()) as ByokState;
         setByok(j);
         if (j.configured) {
+          setByokProvider(j.providerExplicit ?? "auto");
           setByokBaseUrl(j.baseUrl ?? "");
           setByokModel(j.model ?? "");
         }
@@ -77,6 +89,7 @@ export default function ConfigurationPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           apiKey: byokKey.trim(),
+          provider: byokProvider === "auto" ? undefined : byokProvider,
           baseUrl: byokBaseUrl.trim() || undefined,
           model: byokModel.trim() || undefined,
         }),
@@ -95,7 +108,7 @@ export default function ConfigurationPage() {
     } finally {
       setByokSaving(false);
     }
-  }, [byokKey, byokBaseUrl, byokModel, byokSaving]);
+  }, [byokKey, byokProvider, byokBaseUrl, byokModel, byokSaving]);
 
   const clearByok = useCallback(async () => {
     setByokSaving(true);
@@ -105,9 +118,10 @@ export default function ConfigurationPage() {
       await fetch("/api/me/byok", { method: "DELETE" });
       setByok({ configured: false, baseUrl: null, model: null });
       setByokKey("");
+      setByokProvider("auto");
       setByokBaseUrl("");
       setByokModel("");
-      setByokMsg("Key removed. Chats now use the platform default model.");
+      setByokMsg("Key removed. Add a new key to resume chatting.");
     } finally {
       setByokSaving(false);
     }
@@ -305,39 +319,57 @@ export default function ConfigurationPage() {
           Model provider (BYOK)
         </h2>
         <p className="kc-subtitle mb-6 mt-2">
-          Bring your own API key for chat answers. The key is stored only as
-          an encrypted cookie in this browser session — never in our
-          database — and is cleared when you close the browser. Leave the
-          optional fields blank to use the platform defaults.
+          Bring your own API key for chat answers — OpenRouter, OpenAI, or
+          Anthropic (Claude). The key is stored only as an encrypted cookie
+          in this browser session — never in our database — and is cleared
+          when you close the browser. Chat needs a key to work; there is no
+          shared platform key.
         </p>
 
         {byok?.configured && (
           <div className="kc-note kc-note--sage mb-5">
             <span>
-              Using your key {byok.keyPreview}
-              {byok.model
-                ? ` · model ${byok.model}`
-                : " · platform default model"}
+              Using your key {byok.keyPreview} · {byok.providerLabel}
+              {byok.resolvedModel ? ` · ${byok.resolvedModel}` : ""}
               {byok.baseUrl ? ` · ${byok.baseUrl}` : ""}
             </span>
           </div>
         )}
 
         <div className="space-y-4">
-          <div>
-            <label className="kc-label mb-2">API key</label>
-            <input
-              type="password"
-              value={byokKey}
-              onChange={(e) => setByokKey(e.target.value)}
-              placeholder={
-                byok?.configured
-                  ? `Current key ${byok.keyPreview} — enter a new key to replace`
-                  : "sk-or-… (OpenRouter, OpenAI, or any OpenAI-compatible provider)"
-              }
-              autoComplete="off"
-              className="kc-input"
-            />
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <label className="kc-label mb-2">Provider</label>
+              <select
+                value={byokProvider}
+                onChange={(e) => setByokProvider(e.target.value as ProviderChoice)}
+                className="kc-input"
+              >
+                <option value="auto">Detect from key (recommended)</option>
+                {Object.values(PROVIDER_PRESETS).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="kc-label mb-2">API key</label>
+              <input
+                type="password"
+                value={byokKey}
+                onChange={(e) => setByokKey(e.target.value)}
+                placeholder={
+                  byok?.configured
+                    ? `Current key ${byok.keyPreview} — enter a new key to replace`
+                    : byokProvider === "auto"
+                      ? "sk-or-v1-…, sk-…, or sk-ant-…"
+                      : PROVIDER_PRESETS[byokProvider].keyPlaceholder
+                }
+                autoComplete="off"
+                className="kc-input"
+              />
+            </div>
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
@@ -345,7 +377,11 @@ export default function ConfigurationPage() {
               <input
                 value={byokBaseUrl}
                 onChange={(e) => setByokBaseUrl(e.target.value)}
-                placeholder="https://openrouter.ai/api/v1"
+                placeholder={
+                  byokProvider === "auto"
+                    ? "Provider default"
+                    : PROVIDER_PRESETS[byokProvider].baseUrl
+                }
                 className="kc-input"
               />
             </div>
@@ -354,7 +390,11 @@ export default function ConfigurationPage() {
               <input
                 value={byokModel}
                 onChange={(e) => setByokModel(e.target.value)}
-                placeholder="anthropic/claude-sonnet-4"
+                placeholder={
+                  byokProvider === "auto"
+                    ? "Provider default"
+                    : PROVIDER_PRESETS[byokProvider].defaultModel
+                }
                 className="kc-input"
               />
             </div>

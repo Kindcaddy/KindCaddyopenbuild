@@ -12,6 +12,7 @@
 import { cookies } from 'next/headers';
 import { decryptString, encryptString } from './crypto';
 import type { ByokConfig } from './llm/types';
+import { isByokProviderId } from './llm/byok-provider';
 
 export const BYOK_COOKIE = 'kc_byok';
 
@@ -19,6 +20,7 @@ export function encodeByok(config: ByokConfig): string {
   return encryptString(
     JSON.stringify({
       apiKey: config.apiKey,
+      provider: config.provider ?? null,
       baseUrl: config.baseUrl ?? null,
       model: config.model ?? null,
     }),
@@ -26,12 +28,13 @@ export function encodeByok(config: ByokConfig): string {
 }
 
 /** Tolerates missing / malformed / undecryptable values by returning null —
- *  a bad cookie must degrade to the platform default key, never 500 a chat. */
+ *  a bad cookie degrades to `byok_required`, never a 500. */
 export function decodeByok(value: string | undefined | null): ByokConfig | null {
   if (!value) return null;
   try {
     const parsed = JSON.parse(decryptString(value)) as {
       apiKey?: unknown;
+      provider?: unknown;
       baseUrl?: unknown;
       model?: unknown;
     };
@@ -40,6 +43,7 @@ export function decodeByok(value: string | undefined | null): ByokConfig | null 
     }
     return {
       apiKey: parsed.apiKey,
+      provider: isByokProviderId(parsed.provider) ? parsed.provider : undefined,
       baseUrl:
         typeof parsed.baseUrl === 'string' && parsed.baseUrl.length > 0
           ? parsed.baseUrl

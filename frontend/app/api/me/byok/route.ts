@@ -6,30 +6,48 @@ import {
   readByokFromCookies,
   setByokCookie,
 } from '@/lib/byok';
+import {
+  isByokProviderId,
+  PROVIDER_PRESETS,
+  resolveByok,
+} from '@/lib/llm/byok-provider';
+import type { ByokConfig } from '@/lib/llm/types';
 import { cookies } from 'next/headers';
 
 /**
  * BYOK management. The key is stored ONLY as an encrypted session cookie on
  * the caller's browser (see lib/byok.ts). GET never returns the key itself —
- * only a last-4 preview so the UI can confirm which key is active.
+ * only a last-4 preview plus the resolved provider/model so the UI can show
+ * exactly what chat will run on.
  */
+function describe(config: ByokConfig) {
+  const resolved = resolveByok(config);
+  return {
+    configured: true as const,
+    provider: resolved.provider,
+    providerLabel: PROVIDER_PRESETS[resolved.provider].label,
+    // null = inferred from the key shape, not an explicit user choice.
+    providerExplicit: config.provider ?? null,
+    baseUrl: config.baseUrl ?? null,
+    model: config.model ?? null,
+    resolvedModel: resolved.model,
+    keyPreview: `…${config.apiKey.slice(-4)}`,
+  };
+}
+
 export const GET = withGuard(async (_req: NextRequest, context) => {
   void context;
   const config = readByokFromCookies(cookies());
   if (!config) {
     return NextResponse.json({ configured: false });
   }
-  return NextResponse.json({
-    configured: true,
-    baseUrl: config.baseUrl ?? null,
-    model: config.model ?? null,
-    keyPreview: `…${config.apiKey.slice(-4)}`,
-  });
+  return NextResponse.json(describe(config));
 });
 
 export const PUT = withGuard(async (req: NextRequest, context) => {
   const body = (await req.json().catch(() => ({}))) as {
     apiKey?: unknown;
+    provider?: unknown;
     baseUrl?: unknown;
     model?: unknown;
   };
@@ -41,6 +59,20 @@ export const PUT = withGuard(async (req: NextRequest, context) => {
     );
   }
   const apiKey = body.apiKey.trim();
+
+  let provider: ByokConfig['provider'];
+  if (body.provider !== undefined && body.provider !== null && body.provider !== '') {
+    if (!isByokProviderId(body.provider)) {
+      return NextResponse.json(
+        {
+          error: 'invalid_request',
+          message: `provider must be one of: ${Object.keys(PROVIDER_PRESETS).join(', ')}`,
+        },
+        { status: 400 },
+      );
+    }
+    provider = body.provider;
+  }
 
   let baseUrl: string | undefined;
   if (typeof body.baseUrl === 'string' && body.baseUrl.trim().length > 0) {
@@ -64,7 +96,8 @@ export const PUT = withGuard(async (req: NextRequest, context) => {
       ? body.model.trim()
       : undefined;
 
-  setByokCookie({ apiKey, baseUrl, model });
+  const config: ByokConfig = { apiKey, provider, baseUrl, model };
+  setByokCookie(config);
   await db.auditEvent.create({
     data: {
       userId: context.userId,
@@ -75,17 +108,13 @@ export const PUT = withGuard(async (req: NextRequest, context) => {
       // Never log key material — preview only.
       metadata: JSON.stringify({
         keyPreview: `…${apiKey.slice(-4)}`,
+        provider: provider ?? null,
         baseUrl: baseUrl ?? null,
         model: model ?? null,
       }),
     },
   });
-  return NextResponse.json({
-    configured: true,
-    baseUrl: baseUrl ?? null,
-    model: model ?? null,
-    keyPreview: `…${apiKey.slice(-4)}`,
-  });
+  return NextResponse.json(describe(config));
 });
 
 export const DELETE = withGuard(async (_req: NextRequest, context) => {

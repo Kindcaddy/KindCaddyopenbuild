@@ -8,6 +8,7 @@ import { chatTurnLimiter, chatTurnSemaphore } from '@/lib/rate-limit';
 import { RateLimiter } from '@/lib/mcp/policy';
 import {
   ByokAuthError,
+  ByokMissingError,
   ProviderMidturnError,
   ProviderUnreachableError,
   providerOutageSeverity,
@@ -50,11 +51,19 @@ async function auditRateDenial(
 }
 
 /**
- * A BYOK key the provider rejected is a user-configuration problem, not a
- * system failure: clean 401 with an actionable message, no ErrorReport.
- * Returns null for any other error so the caller falls through.
+ * A BYOK problem (no key at all, or a key the provider rejected) is a
+ * user-configuration problem, not a system failure: clean 401 with an
+ * actionable message, no ErrorReport. Returns null for any other error so
+ * the caller falls through.
  */
 function mapByokFailure(err: unknown): AppError | null {
+  if (err instanceof ByokMissingError) {
+    return new AppError(
+      'byok_required',
+      'Connect a model provider key under Configuration to start chatting.',
+      401,
+    );
+  }
   if (!(err instanceof ByokAuthError)) return null;
   return new AppError(
     'byok_key_invalid',
@@ -108,6 +117,17 @@ export const POST = withGuard(async (req: NextRequest, context, { requestId }) =
     throw new AppError('invalid_request', 'message is required', 400);
   }
 
+  // BYOK-only chat: resolve the caller's key up front and fail fast with an
+  // actionable 401 when it's absent — never reach for a platform fallback.
+  const byok = decodeByok(req.cookies.get(BYOK_COOKIE)?.value) ?? undefined;
+  if (!byok) {
+    throw new AppError(
+      'byok_required',
+      'Connect a model provider key under Configuration to start chatting.',
+      401,
+    );
+  }
+
   const wantsStream =
     body.stream === true ||
     (req.headers.get('accept') ?? '').includes('text/event-stream');
@@ -139,8 +159,8 @@ export const POST = withGuard(async (req: NextRequest, context, { requestId }) =
     message: body.message,
     agent: body.agent,
     domain: body.domain,
-    // Session-held BYOK: replaces the platform provider key for this turn.
-    byok: decodeByok(req.cookies.get(BYOK_COOKIE)?.value) ?? undefined,
+    // Session-held BYOK: the only credential a turn can run on.
+    byok,
     requestId,
   };
 

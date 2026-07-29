@@ -389,8 +389,11 @@ export default function AssistantPage() {
       }
 
       if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        failTurn((j as { error?: string }).error ?? `HTTP ${r.status}`);
+        const j = (await r.json().catch(() => ({}))) as {
+          error?: string;
+          message?: string;
+        };
+        failTurn(j.message ?? j.error ?? `HTTP ${r.status}`);
         return;
       }
 
@@ -406,7 +409,11 @@ export default function AssistantPage() {
             void finishTurn(j.sessionId);
           } else if (event === "error") {
             finished = true;
-            const j = data as { code?: string; requestId?: string };
+            const j = data as {
+              code?: string;
+              message?: string;
+              requestId?: string;
+            };
             if (j.code === "assistant_unavailable") {
               removeOptimistic();
               setBanner(
@@ -414,9 +421,20 @@ export default function AssistantPage() {
               );
               setInput(message);
               setLastFailedMessage(message);
+            } else if (j.code === "byok_required" || j.code === "byok_key_invalid") {
+              // Key problems are actionable: keep the draft, point at
+              // Configuration with the server's own explanation.
+              removeOptimistic();
+              setBanner(
+                `${j.message ?? "There's a problem with your API key."} (Configuration → Model provider)`,
+              );
+              setInput(message);
+              setLastFailedMessage(message);
             } else {
               failTurn(
-                `Something went wrong${j.requestId ? ` (reference: ${j.requestId})` : ""}. Please try again.`,
+                j.message
+                  ? `${j.message}${j.requestId ? ` (reference: ${j.requestId})` : ""}`
+                  : `Something went wrong${j.requestId ? ` (reference: ${j.requestId})` : ""}. Please try again.`,
               );
             }
           }
