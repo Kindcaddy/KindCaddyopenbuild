@@ -59,6 +59,30 @@ export class SessionManager {
     return s ?? null;
   }
 
+  /**
+   * Delete one of the caller's own sessions. ChatMessage rows cascade with
+   * the session and ToolInvocation rows cascade with their message, so one
+   * delete purges the whole conversation. Returns false when the session
+   * isn't owned by (userId, tenantId) — same refusal boundary as getOwned,
+   * so a forged cross-tenant id is a no-op, never a delete.
+   */
+  async delete(ctx: RequestContext, sessionId: string): Promise<boolean> {
+    const owned = await this.getOwned(ctx, sessionId);
+    if (!owned) return false;
+    await db.chatSession.delete({ where: { id: owned.id } });
+    await db.auditEvent.create({
+      data: {
+        userId: ctx.userId,
+        tenantId: ctx.tenantId,
+        action: 'chat_session.deleted',
+        resourceType: 'chat_session',
+        resourceId: owned.id,
+        metadata: JSON.stringify({ title: owned.title }),
+      },
+    });
+    return true;
+  }
+
   async listMessages(
     ctx: RequestContext,
     sessionId: string,

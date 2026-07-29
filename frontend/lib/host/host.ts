@@ -75,6 +75,10 @@ export class Host {
     return this.sessions.create(ctx, title);
   }
 
+  async deleteSession(ctx: RequestContext, sessionId: string) {
+    return this.sessions.delete(ctx, sessionId);
+  }
+
   async chat(
     ctx: RequestContext,
     req: ChatRequest,

@@ -251,6 +251,94 @@ describe('Cross-tenant isolation (chat surface)', () => {
     });
   });
 
+  describe('SessionManager.delete()', () => {
+    it('deletes the owner\'s session and cascades messages + tool invocations', async () => {
+      // Fresh fixture (not the shared tenantA.sessionId, which other cases
+      // still need): one session with one message and one invocation.
+      const session = await db.chatSession.create({
+        data: {
+          userId: tenantA.userId,
+          tenantId: tenantA.tenantId,
+          title: 'A delete-me session',
+        },
+      });
+      const message = await db.chatMessage.create({
+        data: {
+          sessionId: session.id,
+          role: 'user',
+          content: 'delete-me-A-content',
+        },
+      });
+      await db.toolInvocation.create({
+        data: {
+          messageId: message.id,
+          sessionId: session.id,
+          server: 'sqlite',
+          tool: 'sqlite.query',
+          status: 'ok',
+          result: JSON.stringify({ ok: true }),
+        },
+      });
+
+      const sm = new SessionManager();
+      const deleted = await sm.delete(tenantA.context, session.id);
+      expect(deleted).toBe(true);
+
+      // Session, messages, and invocations are all gone (FK cascade).
+      expect(
+        await db.chatSession.findUnique({ where: { id: session.id } }),
+      ).toBeNull();
+      expect(
+        await db.chatMessage.findMany({ where: { sessionId: session.id } }),
+      ).toEqual([]);
+      expect(
+        await db.toolInvocation.findMany({ where: { sessionId: session.id } }),
+      ).toEqual([]);
+
+      // The user-visible action left an audit trail.
+      const audit = await db.auditEvent.findFirst({
+        where: {
+          tenantId: tenantA.tenantId,
+          action: 'chat_session.deleted',
+          resourceId: session.id,
+        },
+      });
+      expect(audit).not.toBeNull();
+    });
+
+    it('is a no-op when the session belongs to another tenant', async () => {
+      // Same defense-in-depth boundary as getOwned(): a forged cross-tenant
+      // session id must not delete anything.
+      const session = await db.chatSession.create({
+        data: {
+          userId: tenantB.userId,
+          tenantId: tenantB.tenantId,
+          title: 'B do-not-delete session',
+        },
+      });
+
+      const sm = new SessionManager();
+      const stolenDelete = await sm.delete(tenantA.context, session.id);
+      expect(stolenDelete).toBe(false);
+
+      const stillThere = await db.chatSession.findUnique({
+        where: { id: session.id },
+      });
+      expect(stillThere).not.toBeNull();
+
+      // No audit event was written for the refused delete.
+      const audit = await db.auditEvent.findFirst({
+        where: {
+          action: 'chat_session.deleted',
+          resourceId: session.id,
+        },
+      });
+      expect(audit).toBeNull();
+
+      await db.chatSession.delete({ where: { id: session.id } });
+    });
+  });
+
   describe('Host.chat() with a forged sessionId from another tenant', () => {
     it("rejects with 'Session not found' rather than appending to the stranger's session", async () => {
       // Defense-in-depth verification: even if every layer above Host
