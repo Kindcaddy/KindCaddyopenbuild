@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -94,6 +95,16 @@ export default function ProfilePage() {
 
     fetchUserData();
   }, [router]);
+
+  // Escape closes the delete-account dialog (unless a delete is running).
+  useEffect(() => {
+    if (!deleteOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !deleting) setDeleteOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [deleteOpen, deleting]);
 
   const getInitials = (name: string): string => {
     const parts = name.trim().split(" ");
@@ -307,11 +318,17 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      {deleteOpen && (
-        <div
-          className="kc-backdrop"
-          onClick={() => !deleting && setDeleteOpen(false)}
-        >
+      {/* Portaled to <body>: this page's .kc-panel has backdrop-filter, which
+          makes it the containing block for fixed-position descendants — an
+          in-tree .kc-backdrop would be pinned to the panel instead of the
+          viewport. kc-theme is re-applied on the backdrop because the portal
+          leaves the themed subtree. */}
+      {deleteOpen &&
+        createPortal(
+          <div
+            className="kc-theme kc-backdrop"
+            onClick={() => !deleting && setDeleteOpen(false)}
+          >
           <div
             className="kc-modal"
             role="dialog"
@@ -385,8 +402,9 @@ export default function ProfilePage() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

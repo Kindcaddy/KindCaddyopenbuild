@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   User,
@@ -169,6 +170,17 @@ export default function UserProfileDropdown() {
     };
   }, [isOpen]);
 
+  // Escape closes the invite modal (part of the "user can always exit"
+  // contract alongside the X button and the backdrop click).
+  useEffect(() => {
+    if (!inviteOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setInviteOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [inviteOpen]);
+
   const handleLogout = async () => {
     try {
       const response = await fetch("/api/logout", {
@@ -313,12 +325,24 @@ export default function UserProfileDropdown() {
         </div>
       )}
 
-      {inviteOpen && (
-        <div
-          className="kc-theme kc-backdrop !z-[60]"
-          onClick={() => setInviteOpen(false)}
-        >
-          <div className="kc-modal" onClick={(e) => e.stopPropagation()}>
+      {/* Portaled to <body>: .kc-appbar's backdrop-filter makes it the
+          containing block for fixed-position descendants, which pinned this
+          modal's backdrop to the 64px app bar strip (modal rendered off the
+          top of the screen, no clickable outside area). Escaping the appbar
+          subtree restores viewport-centering and backdrop-click dismissal. */}
+      {inviteOpen &&
+        createPortal(
+          <div
+            className="kc-theme kc-backdrop !z-[60]"
+            onClick={() => setInviteOpen(false)}
+          >
+            <div
+              className="kc-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Invite an employee"
+              onClick={(e) => e.stopPropagation()}
+            >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <span className="kc-eyebrow">Invite</span>
@@ -436,9 +460,10 @@ export default function UserProfileDropdown() {
                 </ul>
               )}
             </div>
-          </div>
-        </div>
-      )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
