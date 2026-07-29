@@ -72,23 +72,40 @@ body {
   font-family: var(--font-kc-mono), ui-monospace, "SF Mono", Menlo, monospace;
 }
 
-/* --- Canvas: ambient gradient wash + drifting data grid ------------------ */
+/* --- Canvas: ambient gradient wash + drifting data grid ------------------
+   Scroll-perf contract: these layers must NEVER animate background-position
+   (a main-thread repaint of the whole viewport every frame, which also
+   forces every backdrop-filter surface above them to re-sample). Both layers
+   animate compositor-only transforms instead; see kc-ambient-glow /
+   kc-data-drift keyframes and the reduced-motion kill-switch at the bottom. */
 
 .kc-canvas {
+  position: relative;
+  background: var(--kc-bg);
+}
+
+/* Ambient radial wash on its own composited layer. inset bleed keeps the
+   gradients covering the page while the layer drifts via translate3d. */
+.kc-canvas::after {
+  content: "";
+  position: absolute;
+  inset: -15%;
+  z-index: 0;
+  pointer-events: none;
   background:
     radial-gradient(ellipse 60% 50% at 12% -8%, rgba(241, 216, 197, 0.85), transparent 60%),
     radial-gradient(ellipse 55% 50% at 92% 2%, rgba(216, 224, 210, 0.85), transparent 58%),
-    radial-gradient(ellipse 70% 60% at 50% 108%, rgba(187, 106, 69, 0.14), transparent 60%),
-    var(--kc-bg);
-  background-position: 0% 0%, 100% 0%, 50% 100%, 0 0;
-  background-size: 140% 140%, 130% 130%, 160% 160%, auto;
+    radial-gradient(ellipse 70% 60% at 50% 108%, rgba(187, 106, 69, 0.14), transparent 60%);
+  will-change: transform;
   animation: kc-ambient-glow 22s ease-in-out infinite alternate;
 }
 
 .kc-canvas::before {
   content: "";
   position: absolute;
-  inset: 0;
+  /* Bleed beyond the canvas so the translate3d drift never exposes edges
+     (overflow is clipped by .kc-shell's overflow-x: hidden). */
+  inset: -140px;
   z-index: 0;
   pointer-events: none;
   background-image:
@@ -99,6 +116,7 @@ body {
   -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.7), transparent 80%);
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.7), transparent 80%);
   opacity: 0.3;
+  will-change: transform;
   animation: kc-data-drift 28s linear infinite;
 }
 
@@ -914,21 +932,26 @@ body {
 
 /* --- Keyframes ----------------------------------------------------------- */
 
+/* Compositor-only ambient motion: transform animations (no repaints). The
+   wash layer has inset:-15% so a ±2.5% translate never exposes an edge. */
 @keyframes kc-ambient-glow {
-  0% {
-    background-position: 0% 0%, 100% 0%, 50% 100%, 0 0;
+  from {
+    transform: translate3d(-2.5%, -1.5%, 0) scale(1);
   }
-  100% {
-    background-position: 14% 10%, 84% 14%, 60% 92%, 0 0;
+  to {
+    transform: translate3d(2.5%, 2%, 0) scale(1.04);
   }
 }
 
+/* One full 86px dot-tile per cycle so the drift loops seamlessly. The sage
+   118px pattern stays static, which keeps the two-tone parallax feel without
+   a seam jump (translate must be an exact tile multiple to loop cleanly). */
 @keyframes kc-data-drift {
   from {
-    background-position: 0 0, 26px 34px;
+    transform: translate3d(0, 0, 0);
   }
   to {
-    background-position: 86px 86px, 144px 152px;
+    transform: translate3d(86px, 86px, 0);
   }
 }
 
@@ -1034,9 +1057,16 @@ body {
   .kc-theme *::before,
   .kc-theme *::after,
   .kc-canvas,
-  .kc-canvas::before {
+  .kc-canvas::before,
+  .kc-canvas::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Keep the layout from shifting sideways when a page grows a scrollbar
+   (short pages vs. long pages toggle the gutter otherwise). */
+html {
+  scrollbar-gutter: stable;
 }
