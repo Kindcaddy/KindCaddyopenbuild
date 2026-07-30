@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import "../globals.css";
 
 /**
  * Segment config for the entire /app tree.
