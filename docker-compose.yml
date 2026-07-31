@@ -1,20 +1,30 @@
 services:
   # Postgres is NOT part of the production stack. It runs on managed AWS RDS,
-  # provisioned by scripts/provision-rds.sh and reached via DATABASE_URL
-  # (postgresql://...@<rds-endpoint>:5432/kindcaddy?sslmode=require) set in
-  # ./frontend/.env.production. RDS handles backups, patching, and Multi-AZ
-  # failover, so there is no db container to run or back up here.
+  # provisioned by scripts/provision-rds.sh and reached via DATABASE_URL.
+  # RDS handles backups, patching, and failover, so there is no db container
+  # to run or back up here.
   #
   # For local development, start a throwaway Postgres with:
   #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
   #
-  # Hermes was retired: the app now calls an OpenAI-compatible provider
-  # (OpenRouter) directly. Configure OPENAI_* in ./frontend/.env.production.
+  # Env/secrets: TWO sources, both optional; when both exist the SSM render
+  # wins (later entry overrides earlier):
+  #   1. ./frontend/.env.production — self-host default. Copy from
+  #      frontend/.env.production.example and fill it. NEVER commit it.
+  #   2. /run/kindcaddy/env — rendered from AWS SSM Parameter Store into
+  #      RAM-backed tmpfs by scripts/render-env-from-ssm.sh (the KindCaddy
+  #      prod mode: no secrets file exists on disk; the box authenticates
+  #      via its EC2 instance role; params are pushed from the operator
+  #      laptop with scripts/deploy-ec2.sh --push-secrets).
 
   app:
     build: ./frontend
     restart: unless-stopped
-    env_file: ./frontend/.env.production
+    env_file:
+      - path: ./frontend/.env.production
+        required: false
+      - path: /run/kindcaddy/env
+        required: false
     ports:
       - "127.0.0.1:3000:3000"
 

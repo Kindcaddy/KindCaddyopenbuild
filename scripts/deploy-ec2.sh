@@ -2,18 +2,22 @@
 # KindCaddy EC2 deploy executor.
 #
 # PRIVACY MODEL: this script sources ~/.kindcaddy-deploy/credentials.env
-# ITSELF. Secret values flow file -> shell -> file -> EC2. They are never
-# printed, never logged, never placed on a command line, never exposed to
-# any model's context. The operator (human or local model) only runs the
-# commands below and sees sanitized output.
+# ITSELF. Secret values flow file -> shell -> AWS SSM Parameter Store
+# (SecureString). They are never printed, never logged, never placed on a
+# command line, never uploaded to the box as a file, never exposed to any
+# model's context. The box renders them from SSM into RAM-backed tmpfs at
+# deploy time (scripts/render-env-from-ssm.sh) using its EC2 instance role —
+# no secrets file exists on the box, no AWS keys exist on the box.
 #
 # Commands:
-#   --check                   verify creds file, perms, SSH, docker on box, DNS
+#   --check                   verify creds file, perms, SSH, docker on box, DNS,
+#                             aws CLI on box, and list SSM param NAMES
 #   --gen-secrets             fill GENERATE fields in credentials.env via openssl
-#   --push-secrets            render frontend/.env.production locally, scp to box, chmod 600
-#   --push-secrets --dry-run  render and show KEY NAMES ONLY (values masked), no upload
-#   --deploy                  full deploy: git pull + build + migrate + up + health
-#   --update                  routine patch: git pull + rebuild app + up + health
+#   --push-secrets            push all secrets to SSM /kindcaddy/prod/* (SecureString)
+#   --push-secrets --dry-run  show which param NAMES would be pushed, no upload
+#   --render                  re-render /run/kindcaddy/env on the box from SSM
+#   --deploy                  full deploy: git pull + build + render + migrate + up + health
+#   --update                  routine patch: git pull + rebuild app + render + up + health
 #   --logs [N]                tail app container logs (default 80)
 #   --backup                  run scripts/backup-db.sh on the box
 #   --ssh '<cmd>'             run one arbitrary remote command (sanitized output)
@@ -30,6 +34,7 @@ set -euo pipefail
 
 CRED_DIR="${HOME}/.kindcaddy-deploy"
 CRED_FILE="${CRED_DIR}/credentials.env"
+SSM_PREFIX="${KC_SSM_PREFIX:-/kindcaddy/prod/}"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -69,6 +74,19 @@ scpc() {
   scp -i "$EC2_SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$@"
 }
 
+# Authoritative region: read the box's own IMDSv2 (one ssh roundtrip). Falls
+# back to AWS_REGION from credentials.env, then us-east-2 (current prod).
+box_region() {
+  local r
+  r=$(sshc 'T=$(curl -s -m3 -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60"); curl -s -m3 -H "X-aws-ec2-metadata-token: $T" http://169.254.169.254/latest/meta-data/placement/region' 2>/dev/null || true)
+  if [ -n "$r" ]; then echo "$r"; else echo "${AWS_REGION:-us-east-2}"; fi
+}
+
+# Percent-encode for safe embedding in URLs (DB passwords may contain +/= etc.)
+urlencode() {
+  python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=''))" "$1"
+}
+
 # --- commands ---
 
 cmd_check() {
@@ -77,11 +95,14 @@ cmd_check() {
   echo "== SSH to $EC2_USER@$EC2_HOST ..."
   sshc 'echo "   SSH_OK: $(hostname) | $(docker --version) | compose: $(docker compose version --short 2>/dev/null || echo MISSING)"' \
     || die "SSH failed — if your key has a passphrase, run: ssh-add $EC2_SSH_KEY (human types the passphrase locally)"
+  echo "== aws CLI on box: $(sshc 'aws --version 2>/dev/null | head -1' || echo MISSING)"
   echo "== repo on box:"
   sshc 'cd ~/kindcaddy 2>/dev/null && git log --oneline -1 || echo "   ~/kindcaddy not cloned yet — run scripts/ec2-setup.sh on the box first"'
   echo "== DNS (both lines should show the same IP as EC2_HOST=$EC2_HOST):"
   echo "   dns: $(dig +short app.kindcaddy.com | tail -1)"
   echo "   ec2: $EC2_HOST"
+  echo "== SSM parameters visible from the box (NAMES only):"
+  sshc 'T=$(curl -s -m3 -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60"); R=$(curl -s -m3 -H "X-aws-ec2-metadata-token: $T" http://169.254.169.254/latest/meta-data/placement/region); echo "   box region: $R"; aws ssm describe-parameters --region "$R" --parameter-filters "Key=Name,Option=BeginsWith,Values='"$SSM_PREFIX"'" --query "Parameters[*].Name" --output text 2>&1 | tr "\t" "\n" | sed "s/^/   /" || true'
   echo "CHECK DONE — no secrets were read or printed beyond file sourcing."
 }
 
@@ -92,7 +113,7 @@ cmd_gen_secrets() {
     if grep -q "^${var}=\"GENERATE\"" "$CRED_FILE"; then
       if [ "$var" = "DB_PASSWORD" ]; then
         # URL-safe by construction (it is embedded raw into DATABASE_URL on
-        # other systems; render_env also percent-encodes as belt-and-braces).
+        # other systems; the push also percent-encodes as belt-and-braces).
         val=$(openssl rand -base64 24 | tr -d '/+=\n')
       else
         val=$(openssl rand -base64 32 | tr -d '\n')
@@ -105,80 +126,82 @@ cmd_gen_secrets() {
   done
 }
 
-# Percent-encode for safe embedding in URLs (DB passwords may contain +/= etc.)
-urlencode() {
-  python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=''))" "$1"
-}
-
-render_env() {
-  # Writes frontend/.env.production content to the path in $1. No stdout.
-  # DATABASE_URL is built via printf args so no credential-URI literal exists
-  # in this file (keeps secret-pattern scanners from mangling the script).
-  # The password is percent-ENCODED here; RDS keeps the raw form — they are
-  # the same password, one is the URL-safe spelling of the other.
-  local pw_enc
-  pw_enc=$(urlencode "$DB_PASSWORD")
-  printf 'DATABASE_URL="postgresql://%s:%s@%s:5432/kindcaddy?sslmode=require"\n' \
-    "kindcaddy" "$pw_enc" "$RDS_ENDPOINT" > "$1"
-  cat >> "$1" <<EOF
-NODE_ENV="production"
-APP_ORIGIN="https://app.kindcaddy.com"
-AUTH_SECRET="${AUTH_SECRET}"
-AUTH_TRUST_HOST="true"
-AUTH_URL="https://app.kindcaddy.com"
-AUTH_RESEND_KEY="${AUTH_RESEND_KEY}"
-AUTH_ALLOW_EMAIL_LINKING="true"
-EMAIL_FROM="${EMAIL_FROM}"
-RESOURCE_ENCRYPTION_KEY="${RESOURCE_ENCRYPTION_KEY}"
-LLM_TIMEOUT_MS="60000"
-LLM_MAX_TOOL_ROUNDS="5"
-LLM_TURN_BUDGET_MS="180000"
-LLM_MEMORY_TIMEOUT_MS="15000"
-MAX_CONCURRENT_CHAT_TURNS="8"
-EOF
-  # QuickBooks is optional: rendered only when the production keys are present
-  # in credentials.env. The redirect URI is not secret (derived from APP_ORIGIN).
-  if [ -n "${QBO_CLIENT_ID:-}" ] && [ "${QBO_CLIENT_ID}" != "REPLACE_ME" ]; then
-    cat >> "$1" <<EOF
-QBO_CLIENT_ID="${QBO_CLIENT_ID}"
-QBO_CLIENT_SECRET="${QBO_CLIENT_SECRET:-}"
-QBO_REDIRECT_URI="https://app.kindcaddy.com/api/integrations/quickbooks/callback"
-QBO_ENV="${QBO_ENV:-production}"
-EOF
-  fi
-  # Google Calendar is optional: rendered only when the OAuth client keys are
-  # present in credentials.env. The redirect URI is not secret.
-  if [ -n "${GOOGLE_CLIENT_ID:-}" ] && [ "${GOOGLE_CLIENT_ID}" != "REPLACE_ME" ]; then
-    cat >> "$1" <<EOF
-GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID}"
-GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-}"
-GOOGLE_REDIRECT_URI="https://app.kindcaddy.com/api/integrations/google/callback"
-EOF
-  fi
-}
-
 cmd_push_secrets() {
   local dry="${1:-}"
   load_full_secrets
-  local tmp
-  tmp=$(mktemp -d /tmp/kc-env.XXXXXX)
-  chmod 700 "$tmp"
-  render_env "$tmp/.env.production"
-  local lines
-  lines=$(wc -l < "$tmp/.env.production" | tr -d ' ')
+  command -v aws >/dev/null || die "aws CLI not installed (brew install awscli)"
+  local region; region=$(box_region)
+  aws sts get-caller-identity --region "$region" >/dev/null 2>&1 \
+    || die "local AWS creds not working — run: aws configure (human types keys)"
+
+  local tmp; tmp=$(mktemp -d /tmp/kc-ssm.XXXXXX); chmod 700 "$tmp"
+
+  # DATABASE_URL is built via printf args so no credential-URI literal exists
+  # in this file. The password is percent-ENCODED here; RDS keeps the raw
+  # form — they are the same password, one is the URL-safe spelling of the
+  # other. RDS_ENDPOINT is normalized to host-only: older credentials.env had
+  # a user:pass@ prefix embedded (runbook 'KNOWN ISSUE') — strip up to last @.
+  local host="${RDS_ENDPOINT##*@}" pw_enc
+  pw_enc=$(urlencode "$DB_PASSWORD")
+  if [ "$host" != "$RDS_ENDPOINT" ]; then
+    echo "NOTE: RDS_ENDPOINT carried an embedded user:pass@ prefix — stripped for the SSM param."
+    echo "      Fix at source: host-only RDS_ENDPOINT + raw DB_PASSWORD in credentials.env (runbook: Secrets rotation)."
+  fi
+  printf 'postgresql://%s:%s@%s:5432/kindcaddy?sslmode=require' "kindcaddy" "$pw_enc" "$host" > "$tmp/DATABASE_URL"
+
+  printf '%s' "$AUTH_SECRET"             > "$tmp/AUTH_SECRET"
+  printf '%s' "$AUTH_RESEND_KEY"         > "$tmp/AUTH_RESEND_KEY"
+  printf '%s' "$RESOURCE_ENCRYPTION_KEY" > "$tmp/RESOURCE_ENCRYPTION_KEY"
+  printf '%s' "$EMAIL_FROM"              > "$tmp/EMAIL_FROM"
+  # Optional integrations: pushed only when configured (same rule the old
+  # file-render used). The redirect URIs are not secret (derived from APP_ORIGIN).
+  if [ -n "${QBO_CLIENT_ID:-}" ] && [ "$QBO_CLIENT_ID" != "REPLACE_ME" ]; then
+    printf '%s' "$QBO_CLIENT_ID"         > "$tmp/QBO_CLIENT_ID"
+    printf '%s' "${QBO_CLIENT_SECRET:-}" > "$tmp/QBO_CLIENT_SECRET"
+    printf '%s' "https://app.kindcaddy.com/api/integrations/quickbooks/callback" > "$tmp/QBO_REDIRECT_URI"
+    printf '%s' "${QBO_ENV:-production}" > "$tmp/QBO_ENV"
+  fi
+  if [ -n "${GOOGLE_CLIENT_ID:-}" ] && [ "$GOOGLE_CLIENT_ID" != "REPLACE_ME" ]; then
+    printf '%s' "$GOOGLE_CLIENT_ID"         > "$tmp/GOOGLE_CLIENT_ID"
+    printf '%s' "${GOOGLE_CLIENT_SECRET:-}" > "$tmp/GOOGLE_CLIENT_SECRET"
+    printf '%s' "https://app.kindcaddy.com/api/integrations/google/callback" > "$tmp/GOOGLE_REDIRECT_URI"
+  fi
+
+  local n k perr
+  n=$(cd "$tmp" && ls | wc -l | tr -d ' ')
   if [ "$dry" = "--dry-run" ]; then
-    echo "DRY RUN — rendered $lines lines. Key names only (values masked):"
-    awk -F= '{print "   " $1}' "$tmp/.env.production"
+    echo "DRY RUN — would put $n SSM params (region $region, prefix $SSM_PREFIX), key names only:"
+    (cd "$tmp" && for k in *; do echo "   ${SSM_PREFIX}$k"; done)
     rm -rf "$tmp"
-    echo "DRY RUN done — nothing uploaded."
+    echo "DRY RUN done — nothing pushed, nothing uploaded."
     return 0
   fi
-  echo "== uploading frontend/.env.production ($lines lines, values never displayed)"
-  sshc 'mkdir -p ~/kindcaddy/frontend'
-  scpc "$tmp/.env.production" "$EC2_USER@$EC2_HOST:~/kindcaddy/frontend/.env.production" >/dev/null
-  sshc 'chmod 600 ~/kindcaddy/frontend/.env.production'
+
+  echo "== pushing $n params to SSM $region under $SSM_PREFIX (values never displayed)"
+  (cd "$tmp" && ls) | while read -r k; do
+    if perr=$(aws ssm put-parameter --region "$region" --name "${SSM_PREFIX}$k" \
+        --type SecureString --tier Standard --overwrite \
+        --value "file://$tmp/$k" --query 'Version' --output text 2>&1 >/dev/null); then
+      echo "   pushed ${SSM_PREFIX}$k"
+    else
+      rm -rf "$tmp"
+      die "put-parameter failed for ${SSM_PREFIX}$k — AWS said: $perr"
+    fi
+  done
   rm -rf "$tmp"
-  echo "== uploaded and chmod 600. Local temp copy destroyed."
+  echo "== pushed. Local temp copies destroyed; nothing was uploaded to the box."
+  echo "   The running app is UNCHANGED until: $0 --update  (renders + restarts)"
+}
+
+cmd_render() {
+  load_creds
+  render_env_on_box
+}
+
+render_env_on_box() {
+  echo "== rendering env on box from SSM into RAM tmpfs (/run/kindcaddy/env)"
+  sshc 'cd ~/kindcaddy && ./scripts/render-env-from-ssm.sh' \
+    || die "env render failed — params pushed? ($0 --push-secrets) IAM policy attached to ec2-ssm-role? (runbook: Secrets rotation)"
 }
 
 # Builds on the box and aborts if the build fails. BuildKit noise is captured
@@ -220,7 +243,8 @@ cmd_deploy() {
   echo "== building images (this takes several minutes on first run)"
   remote_build
   verify_app_image
-  echo "== running migrations against RDS"
+  render_env_on_box
+  echo "== running migrations against RDS (also the canary: proves the rendered DATABASE_URL authenticates BEFORE the app restarts)"
   sshc 'cd ~/kindcaddy && docker compose run --rm app npx prisma migrate deploy'
   echo "== starting stack"
   sshc 'cd ~/kindcaddy && docker compose up -d && docker compose ps'
@@ -236,7 +260,8 @@ cmd_update() {
   echo "== rebuilding app image"
   remote_build app
   verify_app_image
-  echo "== applying any new migrations"
+  render_env_on_box
+  echo "== applying any new migrations (also the canary: proves the rendered DATABASE_URL authenticates BEFORE the app restarts)"
   sshc 'cd ~/kindcaddy && docker compose run --rm app npx prisma migrate deploy'
   echo "== restarting app"
   sshc 'cd ~/kindcaddy && docker compose up -d app && docker compose ps'
@@ -326,6 +351,7 @@ case "${1:-}" in
   --check)        cmd_check ;;
   --gen-secrets)  cmd_gen_secrets ;;
   --push-secrets) cmd_push_secrets "${2:-}" ;;
+  --render)       cmd_render ;;
   --deploy)       cmd_deploy ;;
   --update)       cmd_update ;;
   --logs)         cmd_logs "${2:-80}" ;;
@@ -334,5 +360,5 @@ case "${1:-}" in
   --scp-get)      [ $# -ge 3 ] || die "usage: $0 --scp-get <remote-path> <local-path>"; load_creds; scpc "$EC2_USER@$EC2_HOST:$2" "$3" ;;
   --clean-host-key) cmd_clean_host_key ;;
   --wipe)         cmd_wipe "${2:-}" ;;
-  *) echo "usage: $0 --check | --gen-secrets | --push-secrets [--dry-run] | --deploy | --update | --logs [N] | --backup | --ssh '<cmd>' | --scp-get <remote> <local> | --clean-host-key | --wipe [CONFIRM]"; exit 2 ;;
+  *) echo "usage: $0 --check | --gen-secrets | --push-secrets [--dry-run] | --render | --deploy | --update | --logs [N] | --backup | --ssh '<cmd>' | --scp-get <remote> <local> | --clean-host-key | --wipe [CONFIRM]"; exit 2 ;;
 esac
