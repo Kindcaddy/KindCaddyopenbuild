@@ -32,7 +32,13 @@ fetch() { # $1=key; stdout=value (empty on miss). Errors never carry values.
     --with-decryption --query 'Parameter.Value' --output text 2>/dev/null || true
 }
 
-mkdir -p "$OUT_DIR"; chmod 700 "$OUT_DIR"
+# /run is root-owned; create our tmpfs dir via the box's passwordless sudo
+# (idempotent; /run is cleared on reboot so this re-runs every render).
+if [ ! -d "$OUT_DIR" ]; then
+  sudo -n install -d -m 700 -o "$(id -un)" "$OUT_DIR" \
+    || { echo "ERROR: cannot create $OUT_DIR (passwordless sudo missing?)" >&2; exit 1; }
+fi
+chmod 700 "$OUT_DIR"
 OUT_TMP=$(mktemp "$OUT_DIR/.env.XXXXXX")   # /run is tmpfs — never touches disk
 chmod 600 "$OUT_TMP"
 
