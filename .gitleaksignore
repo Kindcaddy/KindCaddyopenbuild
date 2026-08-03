@@ -1,0 +1,6 @@
+# False positive: mock API key fixture in a BYOK unit test.
+# Token is "sk-test-…" (24 chars) — not a real OpenRouter key shape
+# (sk-or-v1- + 64 hex). Introduced in commit 7ca29e0, verified 2026-08-02.
+# If byok.test.ts changes such that the fixture moves lines, gitleaks will
+# report a NEW fingerprint — add the new line here the same way.
+7ca29e0f75ef1b2cf5056a7e0d59bde5ee7aa744:frontend/__tests__/lib/byok.test.ts:generic-api-key:12
