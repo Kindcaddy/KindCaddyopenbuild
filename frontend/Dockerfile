@@ -1,9 +1,9 @@
-FROM node:20-slim AS deps
+FROM node:24.22.1-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-FROM node:20-slim AS builder
+FROM node:24.22.1-slim AS builder
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=deps /app/node_modules ./node_modules
@@ -14,7 +14,7 @@ COPY . .
 ENV NODE_OPTIONS="--max-old-space-size=3072"
 RUN npx prisma generate && npm run build
 
-FROM node:20-slim AS runner
+FROM node:24.22.1-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
