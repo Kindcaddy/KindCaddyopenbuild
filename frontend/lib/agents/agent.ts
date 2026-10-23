@@ -29,6 +29,7 @@ import {
   type ResolvedByok,
 } from '../llm/byok-provider';
 import { AnthropicHttpError, anthropicChat } from '../llm/anthropic';
+import { providerFetch } from '../llm/provider-fetch';
 import { safeName, toOpenAITool, toToolSpec, unSafeName } from './tool-projection';
 
 export { ProviderMidturnError, ProviderUnreachableError };
@@ -278,7 +279,7 @@ export class KindCaddyAgent {
     // ---- OpenAI-compatible chat/completions wire format. ----
     let res: Response;
     try {
-      res = await fetch(`${byok.baseUrl}/chat/completions`, {
+      res = await providerFetch(`${byok.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -299,6 +300,9 @@ export class KindCaddyAgent {
         signal: AbortSignal.timeout(this.timeoutMs()),
       });
     } catch (err) {
+      if (err instanceof ProviderUnreachableError || err instanceof ProviderMidturnError) {
+        throw err;
+      }
       // Timeout = provider accepted the connection but a round overran; a
       // rejected fetch with no response = nothing is listening at all.
       if (err instanceof Error && err.name === 'TimeoutError') {

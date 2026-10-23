@@ -18,6 +18,7 @@
 import type { ChatTurn, LLMToolCall, LLMToolSpec } from './types';
 import { safeName, unSafeName } from '../agents/tool-projection';
 import { ProviderMidturnError, ProviderUnreachableError } from './errors';
+import { providerFetch } from './provider-fetch';
 
 export const ANTHROPIC_API_VERSION = '2023-06-01';
 export const ANTHROPIC_DEFAULT_MAX_TOKENS = 4096;
@@ -170,13 +171,16 @@ export async function anthropicChat(input: AnthropicChatInput): Promise<Anthropi
 
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await providerFetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(buildAnthropicBody(input)),
       signal: AbortSignal.timeout(input.timeoutMs),
     });
   } catch (err) {
+    if (err instanceof ProviderUnreachableError || err instanceof ProviderMidturnError) {
+      throw err;
+    }
     if (err instanceof Error && err.name === 'TimeoutError') {
       throw new ProviderMidturnError(
         `LLM provider timed out after ${input.timeoutMs}ms`,

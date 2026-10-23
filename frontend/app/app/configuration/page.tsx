@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/AppShell";
 import {
   PROVIDER_PRESETS,
   type ByokProviderId,
-} from "@/lib/llm/byok-provider";
+} from "@/lib/llm/byok-presets";
 
 type ProviderChoice = "auto" | ByokProviderId;
 

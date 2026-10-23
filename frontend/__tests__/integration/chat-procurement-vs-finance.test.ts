@@ -19,6 +19,10 @@ import type { JsonValue, MCPServerHandler, ServerDescriptor, ToolDescriptor } fr
 
 // ---- Module mocks must come before any import that touches them ----
 
+jest.mock('@/lib/llm/provider-fetch', () => ({
+  providerFetch: (url: string, init: RequestInit) => global.fetch(url, init),
+}));
+
 jest.mock('@/lib/mcp/domain-catalog', () => {
   const fakeDomain = {
     id: 'agent' as const,

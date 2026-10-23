@@ -15,61 +15,17 @@
 import type { ByokConfig } from './types';
 import { anthropicChat } from './anthropic';
 import { ProviderMidturnError, ProviderUnreachableError } from './errors';
+import { providerFetch } from './provider-fetch';
+import { inferProviderFromKey, PROVIDER_PRESETS, type ByokProviderId } from './byok-presets';
 
-export type ByokProviderId = 'openrouter' | 'openai' | 'anthropic';
-
-export interface ProviderPreset {
-  id: ByokProviderId;
-  label: string;
-  baseUrl: string;
-  defaultModel: string;
-  /** Wire format the provider speaks. */
-  wire: 'openai-compatible' | 'anthropic';
-  keyPlaceholder: string;
-}
-
-export const PROVIDER_PRESETS: Record<ByokProviderId, ProviderPreset> = {
-  openrouter: {
-    id: 'openrouter',
-    label: 'OpenRouter',
-    baseUrl: 'https://openrouter.ai/api/v1',
-    defaultModel: 'anthropic/claude-sonnet-4',
-    wire: 'openai-compatible',
-    keyPlaceholder: 'sk-or-v1-…',
-  },
-  openai: {
-    id: 'openai',
-    label: 'OpenAI',
-    baseUrl: 'https://api.openai.com/v1',
-    defaultModel: 'gpt-4o-mini',
-    wire: 'openai-compatible',
-    keyPlaceholder: 'sk-…',
-  },
-  anthropic: {
-    id: 'anthropic',
-    label: 'Anthropic (Claude)',
-    baseUrl: 'https://api.anthropic.com',
-    defaultModel: 'claude-sonnet-4-5',
-    wire: 'anthropic',
-    keyPlaceholder: 'sk-ant-…',
-  },
-};
-
-export const BYOK_PROVIDER_IDS = Object.keys(PROVIDER_PRESETS) as ByokProviderId[];
-
-export function isByokProviderId(value: unknown): value is ByokProviderId {
-  return (
-    typeof value === 'string' &&
-    (BYOK_PROVIDER_IDS as string[]).includes(value)
-  );
-}
-
-/** Infer the provider from the key shape when the user didn't choose one. */
-export function inferProviderFromKey(apiKey: string): ByokProviderId {
-  if (apiKey.startsWith('sk-or-')) return 'openrouter';
-  if (apiKey.startsWith('sk-ant-')) return 'anthropic';
-  return 'openai';
-}
+export {
+  BYOK_PROVIDER_IDS,
+  inferProviderFromKey,
+  isByokProviderId,
+  PROVIDER_PRESETS,
+  type ByokProviderId,
+  type ProviderPreset,
+} from './byok-presets';
 
 export interface ResolvedByok {
   provider: ByokProviderId;
@@ -139,7 +95,7 @@ export async function completeOnce(
 
   let res: Response;
   try {
-    res = await fetch(`${resolved.baseUrl}/chat/completions`, {
+    res = await providerFetch(`${resolved.baseUrl}/chat/completions`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -152,6 +108,9 @@ export async function completeOnce(
       signal: AbortSignal.timeout(opts.timeoutMs),
     });
   } catch (err) {
+    if (err instanceof ProviderUnreachableError || err instanceof ProviderMidturnError) {
+      throw err;
+    }
     if (err instanceof Error && err.name === 'TimeoutError') {
       throw new ProviderMidturnError(
         `LLM provider timed out after ${opts.timeoutMs}ms`,

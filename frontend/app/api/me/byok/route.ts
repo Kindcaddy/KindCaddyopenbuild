@@ -11,6 +11,7 @@ import {
   PROVIDER_PRESETS,
   resolveByok,
 } from '@/lib/llm/byok-provider';
+import { checkProviderBaseUrl } from '@/lib/llm/provider-url';
 import type { ByokConfig } from '@/lib/llm/types';
 import { cookies } from 'next/headers';
 
@@ -77,14 +78,10 @@ export const PUT = withGuard(async (req: NextRequest, context) => {
   let baseUrl: string | undefined;
   if (typeof body.baseUrl === 'string' && body.baseUrl.trim().length > 0) {
     const candidate = body.baseUrl.trim();
-    try {
-      const url = new URL(candidate);
-      if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-        throw new Error('bad protocol');
-      }
-    } catch {
+    const check = checkProviderBaseUrl(candidate);
+    if (!check.ok) {
       return NextResponse.json(
-        { error: 'invalid_request', message: 'baseUrl must be a valid http(s) URL' },
+        { error: 'invalid_request', message: check.message },
         { status: 400 },
       );
     }
